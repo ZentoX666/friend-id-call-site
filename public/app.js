@@ -30,6 +30,8 @@ let pc = null;
 let localStream = null;
 let currentPeerPublicId = null;
 let pendingIncoming = null; // { fromPublicId, offer }
+let isCaller = false;
+let reconnectTimer = null;
 
 function setMsg(node, text, kind = "muted") {
   node.textContent = text || "";
@@ -164,12 +166,25 @@ async function refreshMe() {
     socket.on("presence:ready", () => {});
 
     socket.on("call:incoming", async ({ fromPublicId, offer }) => {
-      if (pc || pendingIncoming) {
-        // busy -> ignore
-        return;
+      // If we're already in a call with the same peer, treat as renegotiation (ICE restart, etc.)
+      if (pc && currentPeerPublicId === fromPublicId) {
+        try {
+          await pc.setRemoteDescription(offer);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit("call:answer", { toPublicId: fromPublicId, answer });
+          setCallState("reconnecting...");
+          return;
+        } catch {
+          // fallthrough to busy/ignore
+        }
       }
+
+      if (pc || pendingIncoming) return; // busy
+
       pendingIncoming = { fromPublicId, offer };
       currentPeerPublicId = fromPublicId;
+      isCaller = false;
       setCallState(`incoming from ${fromPublicId}`);
       setIncomingUI(true);
     });
@@ -242,7 +257,11 @@ async function refreshFriends() {
 
 function makePeerConnection(toPublicId) {
   const config = {
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+    ],
   };
   pc = new RTCPeerConnection(config);
   currentPeerPublicId = toPublicId;
@@ -261,8 +280,43 @@ function makePeerConnection(toPublicId) {
   pc.onconnectionstatechange = () => {
     const st = pc?.connectionState;
     if (st === "connected") setCallState("in_call");
-    if (st === "failed" || st === "disconnected" || st === "closed") cleanupCall();
+    if (st === "failed") {
+      attemptReconnect("failed");
+      return;
+    }
+    if (st === "disconnected") {
+      attemptReconnect("disconnected");
+      return;
+    }
+    if (st === "closed") cleanupCall();
   };
+
+  pc.oniceconnectionstatechange = () => {
+    const st = pc?.iceConnectionState;
+    if (st === "failed") attemptReconnect("ice_failed");
+    if (st === "disconnected") attemptReconnect("ice_disconnected");
+  };
+}
+
+async function attemptReconnect(reason) {
+  if (!pc || !socket || !currentPeerPublicId) return;
+  if (reconnectTimer) return;
+
+  setCallState(`reconnecting (${reason})...`);
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    if (!pc || !socket || !currentPeerPublicId) return;
+    if (!isCaller) return; // caller drives ICE restart
+
+    try {
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      socket.emit("call:offer", { toPublicId: currentPeerPublicId, offer });
+    } catch {
+      cleanupCall();
+    }
+  }, 1200);
 }
 
 async function getLocalAudio() {
@@ -286,6 +340,7 @@ async function startCall(toPublicId) {
   try {
     setCallState(`calling ${toPublicId}...`);
     makePeerConnection(toPublicId);
+    isCaller = true;
 
     const stream = await getLocalAudio();
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
@@ -309,6 +364,7 @@ async function acceptIncoming() {
   try {
     setCallState("accepting...");
     makePeerConnection(fromPublicId);
+    isCaller = false;
 
     const stream = await getLocalAudio();
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
@@ -332,10 +388,15 @@ function declineIncoming() {
 }
 
 function cleanupCall() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   setIncomingUI(false);
   setInCallUI(false);
   currentPeerPublicId = null;
   pendingIncoming = null;
+  isCaller = false;
 
   if (pc) {
     try {
