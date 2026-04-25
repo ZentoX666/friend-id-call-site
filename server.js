@@ -7,205 +7,199 @@ const express = require("express");
 const session = require("express-session");
 const { Server } = require("socket.io");
 
-const { db, generateUniquePublicId } = require("./db");
-
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+const { initDb, getOne, getAll, run, generateUniquePublicId } = require("./db");
 
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-insecure-secret";
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-app.use(
-  session({
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: "lax" },
-  })
-);
+async function main() {
+  await initDb();
 
-app.use(express.static(path.join(__dirname, "public")));
+  const app = express();
+  const server = http.createServer(app);
+  const io = new Server(server);
 
-app.get("/healthz", (req, res) => {
-  res.status(200).send("ok");
-});
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
+  app.use(
+    session({
+      secret: SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      cookie: { httpOnly: true, sameSite: "lax" },
+    })
+  );
 
-function requireAuth(req, res, next) {
-  if (!req.session.userId) return res.status(401).json({ error: "not_authenticated" });
-  next();
-}
+  app.use(express.static(path.join(__dirname, "public")));
 
-function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
-}
-
-app.get("/api/me", (req, res) => {
-  if (!req.session.userId) return res.json({ authenticated: false });
-  const user = db
-    .prepare("SELECT public_id AS publicId, email FROM users WHERE id = ?")
-    .get(req.session.userId);
-  if (!user) {
-    req.session.destroy(() => {});
-    return res.json({ authenticated: false });
-  }
-  res.json({ authenticated: true, user });
-});
-
-app.post("/api/signup", async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-    const password = String(req.body.password || "");
-    if (!email.includes("@") || email.length > 254) return res.status(400).json({ error: "invalid_email" });
-    if (password.length < 6 || password.length > 200) return res.status(400).json({ error: "invalid_password" });
-
-    const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
-    if (existing) return res.status(409).json({ error: "email_in_use" });
-
-    const publicId = generateUniquePublicId();
-    const passwordHash = await bcrypt.hash(password, 12);
-
-    const info = db
-      .prepare("INSERT INTO users (public_id, email, password_hash) VALUES (?, ?, ?)")
-      .run(publicId, email, passwordHash);
-
-    req.session.userId = info.lastInsertRowid;
-    res.json({ ok: true, publicId });
-  } catch (e) {
-    res.status(500).json({ error: "server_error" });
-  }
-});
-
-app.post("/api/login", async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-    const password = String(req.body.password || "");
-    const user = db.prepare("SELECT id, password_hash FROM users WHERE email = ?").get(email);
-    if (!user) return res.status(401).json({ error: "bad_credentials" });
-
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ error: "bad_credentials" });
-
-    req.session.userId = user.id;
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: "server_error" });
-  }
-});
-
-app.post("/api/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.json({ ok: true });
+  app.get("/healthz", (req, res) => {
+    res.status(200).send("ok");
   });
-});
 
-app.get("/api/friends", requireAuth, (req, res) => {
-  const rows = db
-    .prepare(
+  function requireAuth(req, res, next) {
+    if (!req.session.userId) return res.status(401).json({ error: "not_authenticated" });
+    next();
+  }
+
+  function normalizeEmail(email) {
+    return String(email || "").trim().toLowerCase();
+  }
+
+  app.get("/api/me", (req, res) => {
+    if (!req.session.userId) return res.json({ authenticated: false });
+    const user = getOne("SELECT public_id AS publicId, email FROM users WHERE id = ?", [req.session.userId]);
+    if (!user) {
+      req.session.destroy(() => {});
+      return res.json({ authenticated: false });
+    }
+    res.json({ authenticated: true, user });
+  });
+
+  app.post("/api/signup", async (req, res) => {
+    try {
+      const email = normalizeEmail(req.body.email);
+      const password = String(req.body.password || "");
+      if (!email.includes("@") || email.length > 254) return res.status(400).json({ error: "invalid_email" });
+      if (password.length < 6 || password.length > 200) return res.status(400).json({ error: "invalid_password" });
+
+      const existing = getOne("SELECT id FROM users WHERE email = ?", [email]);
+      if (existing) return res.status(409).json({ error: "email_in_use" });
+
+      const publicId = generateUniquePublicId();
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      run("INSERT INTO users (public_id, email, password_hash) VALUES (?, ?, ?)", [publicId, email, passwordHash]);
+      const created = getOne("SELECT id FROM users WHERE email = ?", [email]);
+
+      req.session.userId = created.id;
+      res.json({ ok: true, publicId });
+    } catch (e) {
+      res.status(500).json({ error: "server_error" });
+    }
+  });
+
+  app.post("/api/login", async (req, res) => {
+    try {
+      const email = normalizeEmail(req.body.email);
+      const password = String(req.body.password || "");
+      const user = getOne("SELECT id, password_hash FROM users WHERE email = ?", [email]);
+      if (!user) return res.status(401).json({ error: "bad_credentials" });
+
+      const ok = await bcrypt.compare(password, user.password_hash);
+      if (!ok) return res.status(401).json({ error: "bad_credentials" });
+
+      req.session.userId = user.id;
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: "server_error" });
+    }
+  });
+
+  app.post("/api/logout", (req, res) => {
+    req.session.destroy(() => {
+      res.json({ ok: true });
+    });
+  });
+
+  app.get("/api/friends", requireAuth, (req, res) => {
+    const rows = getAll(
       `
       SELECT u.public_id AS publicId, u.email AS email
       FROM friendships f
       JOIN users u ON u.id = f.friend_user_id
       WHERE f.user_id = ?
       ORDER BY f.created_at DESC
-    `
-    )
-    .all(req.session.userId);
-  res.json({ friends: rows });
-});
-
-app.post("/api/friends/add", requireAuth, (req, res) => {
-  const friendPublicId = Number(req.body.friendPublicId);
-  if (!Number.isInteger(friendPublicId)) return res.status(400).json({ error: "invalid_id" });
-
-  const me = db.prepare("SELECT id FROM users WHERE id = ?").get(req.session.userId);
-  if (!me) return res.status(401).json({ error: "not_authenticated" });
-
-  const friend = db.prepare("SELECT id FROM users WHERE public_id = ?").get(friendPublicId);
-  if (!friend) return res.status(404).json({ error: "user_not_found" });
-  if (friend.id === req.session.userId) return res.status(400).json({ error: "cannot_add_self" });
-
-  const insert = db.prepare("INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)");
-  const tx = db.transaction(() => {
-    insert.run(req.session.userId, friend.id);
-    insert.run(friend.id, req.session.userId); // mutual
-  });
-  tx();
-
-  res.json({ ok: true });
-});
-
-// ----- Socket.IO for presence + WebRTC signaling -----
-// Map userId -> socket.id (single active socket)
-const userSockets = new Map();
-
-io.use((socket, next) => {
-  // Read session cookie for auth
-  // We can't directly use express-session middleware without extra adapter,
-  // so we do a simple fallback: client sends /api/me first and then sends auth payload.
-  next();
-});
-
-io.on("connection", (socket) => {
-  socket.on("auth", ({ publicId }) => {
-    const user = db.prepare("SELECT id, public_id FROM users WHERE public_id = ?").get(Number(publicId));
-    if (!user) return;
-    userSockets.set(user.id, socket.id);
-    socket.data.userId = user.id;
-    socket.data.publicId = user.public_id;
-    socket.emit("presence:ready", { ok: true });
+    `,
+      [req.session.userId]
+    );
+    res.json({ friends: rows });
   });
 
-  socket.on("call:offer", ({ toPublicId, offer }) => {
-    const fromUserId = socket.data.userId;
-    if (!fromUserId) return;
-    const toUser = db.prepare("SELECT id, public_id FROM users WHERE public_id = ?").get(Number(toPublicId));
-    if (!toUser) return;
+  app.post("/api/friends/add", requireAuth, (req, res) => {
+    const friendPublicId = Number(req.body.friendPublicId);
+    if (!Number.isInteger(friendPublicId)) return res.status(400).json({ error: "invalid_id" });
 
-    // Allow calls only to friends
-    const isFriend = db
-      .prepare("SELECT 1 FROM friendships WHERE user_id = ? AND friend_user_id = ?")
-      .get(fromUserId, toUser.id);
-    if (!isFriend) return;
+    const me = getOne("SELECT id FROM users WHERE id = ?", [req.session.userId]);
+    if (!me) return res.status(401).json({ error: "not_authenticated" });
 
-    const toSocketId = userSockets.get(toUser.id);
-    if (!toSocketId) {
-      socket.emit("call:error", { error: "friend_offline" });
-      return;
-    }
-    io.to(toSocketId).emit("call:incoming", { fromPublicId: socket.data.publicId, offer });
+    const friend = getOne("SELECT id FROM users WHERE public_id = ?", [friendPublicId]);
+    if (!friend) return res.status(404).json({ error: "user_not_found" });
+    if (friend.id === req.session.userId) return res.status(400).json({ error: "cannot_add_self" });
+
+    run("INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)", [req.session.userId, friend.id]);
+    run("INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)", [friend.id, req.session.userId]);
+    res.json({ ok: true });
   });
 
-  socket.on("call:answer", ({ toPublicId, answer }) => {
-    const fromUserId = socket.data.userId;
-    if (!fromUserId) return;
-    const toUser = db.prepare("SELECT id FROM users WHERE public_id = ?").get(Number(toPublicId));
-    if (!toUser) return;
-    const toSocketId = userSockets.get(toUser.id);
-    if (!toSocketId) return;
-    io.to(toSocketId).emit("call:answer", { fromPublicId: socket.data.publicId, answer });
+  // ----- Socket.IO for presence + WebRTC signaling -----
+  // Map userId -> socket.id (single active socket)
+  const userSockets = new Map();
+
+  io.on("connection", (socket) => {
+    socket.on("auth", ({ publicId }) => {
+      const user = getOne("SELECT id, public_id FROM users WHERE public_id = ?", [Number(publicId)]);
+      if (!user) return;
+      userSockets.set(user.id, socket.id);
+      socket.data.userId = user.id;
+      socket.data.publicId = user.public_id;
+      socket.emit("presence:ready", { ok: true });
+    });
+
+    socket.on("call:offer", ({ toPublicId, offer }) => {
+      const fromUserId = socket.data.userId;
+      if (!fromUserId) return;
+      const toUser = getOne("SELECT id, public_id FROM users WHERE public_id = ?", [Number(toPublicId)]);
+      if (!toUser) return;
+
+      const isFriend = getOne("SELECT 1 AS ok FROM friendships WHERE user_id = ? AND friend_user_id = ?", [
+        fromUserId,
+        toUser.id,
+      ]);
+      if (!isFriend) return;
+
+      const toSocketId = userSockets.get(toUser.id);
+      if (!toSocketId) {
+        socket.emit("call:error", { error: "friend_offline" });
+        return;
+      }
+      io.to(toSocketId).emit("call:incoming", { fromPublicId: socket.data.publicId, offer });
+    });
+
+    socket.on("call:answer", ({ toPublicId, answer }) => {
+      const fromUserId = socket.data.userId;
+      if (!fromUserId) return;
+      const toUser = getOne("SELECT id FROM users WHERE public_id = ?", [Number(toPublicId)]);
+      if (!toUser) return;
+      const toSocketId = userSockets.get(toUser.id);
+      if (!toSocketId) return;
+      io.to(toSocketId).emit("call:answer", { fromPublicId: socket.data.publicId, answer });
+    });
+
+    socket.on("call:ice", ({ toPublicId, candidate }) => {
+      const fromUserId = socket.data.userId;
+      if (!fromUserId) return;
+      const toUser = getOne("SELECT id FROM users WHERE public_id = ?", [Number(toPublicId)]);
+      if (!toUser) return;
+      const toSocketId = userSockets.get(toUser.id);
+      if (!toSocketId) return;
+      io.to(toSocketId).emit("call:ice", { fromPublicId: socket.data.publicId, candidate });
+    });
+
+    socket.on("disconnect", () => {
+      const userId = socket.data.userId;
+      if (userId) userSockets.delete(userId);
+    });
   });
 
-  socket.on("call:ice", ({ toPublicId, candidate }) => {
-    const fromUserId = socket.data.userId;
-    if (!fromUserId) return;
-    const toUser = db.prepare("SELECT id FROM users WHERE public_id = ?").get(Number(toPublicId));
-    if (!toUser) return;
-    const toSocketId = userSockets.get(toUser.id);
-    if (!toSocketId) return;
-    io.to(toSocketId).emit("call:ice", { fromPublicId: socket.data.publicId, candidate });
+  server.listen(PORT, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Server running on http://localhost:${PORT}`);
   });
+}
 
-  socket.on("disconnect", () => {
-    const userId = socket.data.userId;
-    if (userId) userSockets.delete(userId);
-  });
-});
-
-server.listen(PORT, () => {
+main().catch((e) => {
   // eslint-disable-next-line no-console
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.error(e);
+  process.exit(1);
 });
 
