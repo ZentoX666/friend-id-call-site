@@ -1,4 +1,3 @@
-/api/*  https://RENDER_BACKEND_URL/api/:splat  200
-/socket.io/*  https://RENDER_BACKEND_URL/socket.io/:splat  200
+/api/*  https://friend-id-call-site.onrender.com/api/:splat  200
+/socket.io/*  https://friend-id-call-site.onrender.com/socket.io/:splat  200
 /*  /index.html  200
-
