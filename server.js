@@ -142,10 +142,89 @@ async function main() {
     res.json({ ok: true });
   });
 
-  // ----- Socket.IO for presence + WebRTC signaling -----
   // Map userId -> socket.id (single active socket)
   const userSockets = new Map();
 
+  // ----- Chat (persistent in SQLite file) -----
+  app.get("/api/messages/:friendPublicId", requireAuth, (req, res) => {
+    const friendPublicId = Number(req.params.friendPublicId);
+    if (!Number.isInteger(friendPublicId)) return res.status(400).json({ error: "invalid_id" });
+
+    const me = getOne("SELECT id, public_id AS publicId FROM users WHERE id = ?", [req.session.userId]);
+    if (!me) return res.status(401).json({ error: "not_authenticated" });
+
+    const friend = getOne("SELECT id, public_id AS publicId, email FROM users WHERE public_id = ?", [friendPublicId]);
+    if (!friend) return res.status(404).json({ error: "user_not_found" });
+
+    const isFriend = getOne("SELECT 1 AS ok FROM friendships WHERE user_id = ? AND friend_user_id = ?", [me.id, friend.id]);
+    if (!isFriend) return res.status(403).json({ error: "not_friends" });
+
+    const rows = getAll(
+      `
+      SELECT
+        m.id AS id,
+        m.body AS body,
+        m.created_at AS createdAt,
+        fu.public_id AS fromPublicId,
+        tu.public_id AS toPublicId
+      FROM messages m
+      JOIN users fu ON fu.id = m.from_user_id
+      JOIN users tu ON tu.id = m.to_user_id
+      WHERE
+        (m.from_user_id = ? AND m.to_user_id = ?)
+        OR
+        (m.from_user_id = ? AND m.to_user_id = ?)
+      ORDER BY m.id DESC
+      LIMIT 100
+    `,
+      [me.id, friend.id, friend.id, me.id]
+    ).reverse();
+
+    res.json({ friend: { publicId: friend.publicId, email: friend.email }, messages: rows });
+  });
+
+  app.post("/api/messages/send", requireAuth, (req, res) => {
+    const toPublicId = Number(req.body.toPublicId);
+    const body = String(req.body.body || "").trim();
+    if (!Number.isInteger(toPublicId)) return res.status(400).json({ error: "invalid_id" });
+    if (!body || body.length > 2000) return res.status(400).json({ error: "invalid_message" });
+
+    const me = getOne("SELECT id, public_id AS publicId FROM users WHERE id = ?", [req.session.userId]);
+    if (!me) return res.status(401).json({ error: "not_authenticated" });
+
+    const friend = getOne("SELECT id, public_id AS publicId FROM users WHERE public_id = ?", [toPublicId]);
+    if (!friend) return res.status(404).json({ error: "user_not_found" });
+
+    const isFriend = getOne("SELECT 1 AS ok FROM friendships WHERE user_id = ? AND friend_user_id = ?", [me.id, friend.id]);
+    if (!isFriend) return res.status(403).json({ error: "not_friends" });
+
+    run("INSERT INTO messages (from_user_id, to_user_id, body) VALUES (?, ?, ?)", [me.id, friend.id, body]);
+    const msg = getOne(
+      `
+      SELECT
+        m.id AS id,
+        m.body AS body,
+        m.created_at AS createdAt,
+        fu.public_id AS fromPublicId,
+        tu.public_id AS toPublicId
+      FROM messages m
+      JOIN users fu ON fu.id = m.from_user_id
+      JOIN users tu ON tu.id = m.to_user_id
+      WHERE m.from_user_id = ? AND m.to_user_id = ?
+      ORDER BY m.id DESC
+      LIMIT 1
+    `,
+      [me.id, friend.id]
+    );
+
+    // emit to receiver if online
+    const toSocketId = userSockets.get(friend.id);
+    if (toSocketId) io.to(toSocketId).emit("chat:message", msg);
+
+    res.json({ ok: true, message: msg });
+  });
+
+  // ----- Socket.IO for presence + WebRTC signaling -----
   io.on("connection", (socket) => {
     socket.on("auth", ({ publicId }) => {
       const user = getOne("SELECT id, public_id FROM users WHERE public_id = ?", [Number(publicId)]);

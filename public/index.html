@@ -92,6 +92,20 @@
           </div>
           <audio id="remoteAudio" autoplay></audio>
         </div>
+
+        <div class="card">
+          <h3>Chat</h3>
+          <div class="call-row">
+            <div class="muted">Cu:</div>
+            <div id="chatWith" class="mono">-</div>
+          </div>
+          <div id="chatMessages" class="chat"></div>
+          <form id="chatForm" class="form-inline chat-form">
+            <input id="chatInput" name="body" placeholder="Scrie mesaj..." autocomplete="off" />
+            <button class="btn" type="submit">Trimite</button>
+          </form>
+          <div class="hint" id="chatMsg"></div>
+        </div>
       </div>
     </div>
 

@@ -18,6 +18,12 @@ const addFriendForm = el("addFriendForm");
 const addFriendMsg = el("addFriendMsg");
 const friendsList = el("friendsList");
 
+const chatWith = el("chatWith");
+const chatMessages = el("chatMessages");
+const chatForm = el("chatForm");
+const chatInput = el("chatInput");
+const chatMsg = el("chatMsg");
+
 const callStatus = el("callStatus");
 const remoteAudio = el("remoteAudio");
 const hangupBtn = el("hangupBtn");
@@ -32,6 +38,10 @@ let currentPeerPublicId = null;
 let pendingIncoming = null; // { fromPublicId, offer }
 let isCaller = false;
 let reconnectTimer = null;
+
+let chatPeer = null; // { publicId, email }
+let audioCtx = null;
+let audioUnlocked = false;
 
 function setMsg(node, text, kind = "muted") {
   node.textContent = text || "";
@@ -140,6 +150,83 @@ function computeAvatar(email) {
   return letters || (email?.[0]?.toUpperCase() ?? "?");
 }
 
+function unlockAudio() {
+  if (audioUnlocked) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.01);
+    audioUnlocked = true;
+  } catch {
+    // ignore
+  }
+}
+
+function playBellMax() {
+  unlockAudio();
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(1.0, now + 0.01); // max-ish
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.8);
+
+  const osc1 = audioCtx.createOscillator();
+  osc1.type = "sine";
+  osc1.frequency.setValueAtTime(880, now);
+  const osc2 = audioCtx.createOscillator();
+  osc2.type = "sine";
+  osc2.frequency.setValueAtTime(1320, now);
+
+  osc1.connect(gain);
+  osc2.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc1.start(now);
+  osc2.start(now);
+  osc1.stop(now + 0.8);
+  osc2.stop(now + 0.8);
+}
+
+function renderChatMessages(messages) {
+  if (!chatMessages) return;
+  chatMessages.innerHTML = "";
+  for (const m of messages) {
+    const b = document.createElement("div");
+    b.className = "chat-bubble" + (m.fromPublicId === me?.publicId ? " me" : "");
+    const meta = document.createElement("div");
+    meta.className = "meta mono";
+    meta.textContent = `${m.fromPublicId} • ${m.createdAt}`;
+    const body = document.createElement("div");
+    body.textContent = m.body;
+    b.appendChild(meta);
+    b.appendChild(body);
+    chatMessages.appendChild(b);
+  }
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function openChatWith(friend) {
+  chatPeer = friend;
+  if (chatWith) chatWith.textContent = friend ? `${friend.email}` : "-";
+  if (!friend) return;
+
+  try {
+    setMsg(chatMsg, "Se încarcă...");
+    const data = await api(`/api/messages/${friend.publicId}`);
+    renderChatMessages(data.messages || []);
+    setMsg(chatMsg, "");
+    if (chatInput) chatInput.focus();
+  } catch (err) {
+    const code = err?.data?.error || "error";
+    setMsg(chatMsg, code, "error");
+  }
+}
+
 async function refreshMe() {
   const data = await api("/api/me");
   if (!data.authenticated) {
@@ -209,6 +296,29 @@ async function refreshMe() {
       setCallState(`error: ${error}`);
       cleanupCall();
     });
+
+    socket.on("chat:message", (msg) => {
+      // Bell at maximum (requires user gesture once)
+      playBellMax();
+
+      // If this is the currently opened chat, append & scroll
+      if (chatPeer && (msg.fromPublicId === chatPeer.publicId || msg.toPublicId === chatPeer.publicId)) {
+        // append bubble
+        const b = document.createElement("div");
+        b.className = "chat-bubble" + (msg.fromPublicId === me?.publicId ? " me" : "");
+        const meta = document.createElement("div");
+        meta.className = "meta mono";
+        meta.textContent = `${msg.fromPublicId} • ${msg.createdAt}`;
+        const body = document.createElement("div");
+        body.textContent = msg.body;
+        b.appendChild(meta);
+        b.appendChild(body);
+        chatMessages?.appendChild(b);
+        if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+      } else {
+        setMsg(chatMsg, "Mesaj nou primit.", "muted");
+      }
+    });
   }
 
   await refreshFriends();
@@ -221,7 +331,7 @@ async function refreshFriends() {
   if (!data.friends.length) {
     const empty = document.createElement("div");
     empty.className = "muted";
-    empty.textContent = "Nu ai prieteni încă. Adaugă pe cineva prin ID.";
+    empty.textContent = "Nu ai prieteni încă. Adaugă pe cineva prin email.";
     friendsList.appendChild(empty);
     return;
   }
@@ -248,6 +358,12 @@ async function refreshFriends() {
     callBtn.textContent = "Sună";
     callBtn.addEventListener("click", () => startCall(f.publicId));
     actions.appendChild(callBtn);
+
+    const chatBtn = document.createElement("button");
+    chatBtn.className = "btn btn-ghost";
+    chatBtn.textContent = "Chat";
+    chatBtn.addEventListener("click", () => openChatWith(f));
+    actions.appendChild(chatBtn);
 
     row.appendChild(meta);
     row.appendChild(actions);
@@ -414,6 +530,9 @@ initTabs();
 
 // avatar click no longer reveals ID; we use email-based friend add now
 
+// Unlock audio on first interaction so notification sound can play
+window.addEventListener("pointerdown", unlockAudio, { once: true });
+
 logoutBtn.addEventListener("click", async () => {
   try {
     await api("/api/logout", { method: "POST" });
@@ -477,6 +596,46 @@ addFriendForm.addEventListener("submit", async (e) => {
   } catch (err) {
     const code = err?.data?.error || "error";
     setMsg(addFriendMsg, code, "error");
+  }
+});
+
+chatForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!chatPeer) {
+    setMsg(chatMsg, "Selectează un prieten din listă (Chat).", "error");
+    return;
+  }
+  const body = String(chatInput?.value || "").trim();
+  if (!body) return;
+  if (body.length > 2000) {
+    setMsg(chatMsg, "Mesaj prea lung.", "error");
+    return;
+  }
+  try {
+    const data = await api("/api/messages/send", {
+      method: "POST",
+      body: JSON.stringify({ toPublicId: chatPeer.publicId, body }),
+    });
+    chatInput.value = "";
+    setMsg(chatMsg, "");
+    // append my own message immediately
+    if (data?.message) {
+      const msg = data.message;
+      const b = document.createElement("div");
+      b.className = "chat-bubble me";
+      const meta = document.createElement("div");
+      meta.className = "meta mono";
+      meta.textContent = `${msg.fromPublicId} • ${msg.createdAt}`;
+      const bodyEl = document.createElement("div");
+      bodyEl.textContent = msg.body;
+      b.appendChild(meta);
+      b.appendChild(bodyEl);
+      chatMessages?.appendChild(b);
+      if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  } catch (err) {
+    const code = err?.data?.error || "error";
+    setMsg(chatMsg, code, "error");
   }
 });
 
