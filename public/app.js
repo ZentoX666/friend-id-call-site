@@ -63,18 +63,51 @@ function setInCallUI(on) {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  let data = null;
-  try {
-    data = await res.json();
-  } catch {
-    // ignore
+  const maxAttempts = 4;
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timeoutMs = attempt === 1 ? 12000 : 25000; // Render free can cold-start
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        ...options,
+      });
+      clearTimeout(t);
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        // ignore
+      }
+      if (!res.ok) throw Object.assign(new Error("api_error"), { status: res.status, data });
+      return data;
+    } catch (err) {
+      clearTimeout(t);
+      lastErr = err;
+
+      // Retry only for network/timeout/5xx/proxy type errors
+      const status = err?.status;
+      const retryable =
+        err?.name === "AbortError" ||
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        (typeof status !== "number" && attempt < maxAttempts);
+
+      if (!retryable || attempt === maxAttempts) break;
+
+      // backoff: 0.8s, 1.6s, 2.4s
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+    }
   }
-  if (!res.ok) throw Object.assign(new Error("api_error"), { status: res.status, data });
-  return data;
+
+  throw lastErr || Object.assign(new Error("api_error"), { status: 0, data: null });
 }
 
 function initTabs() {

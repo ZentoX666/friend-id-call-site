@@ -29,6 +29,10 @@ app.use(
 
 app.use(express.static(path.join(__dirname, "public")));
 
+app.get("/healthz", (req, res) => {
+  res.status(200).send("ok");
+});
+
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: "not_authenticated" });
   next();
