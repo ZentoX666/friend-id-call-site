@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Friend ID Call</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="topbar">
+        <div class="brand">Friend ID Call</div>
+        <button id="logoutBtn" class="btn btn-ghost hidden">Logout</button>
+      </div>
+
+      <div id="authView" class="card hidden">
+        <div class="tabs">
+          <button class="tab active" data-tab="login">Login</button>
+          <button class="tab" data-tab="signup">Sign up</button>
+        </div>
+
+        <div id="loginTab" class="tab-panel">
+          <h2>Login</h2>
+          <form id="loginForm" class="form">
+            <label>Email</label>
+            <input name="email" type="email" autocomplete="email" required />
+            <label>Parolă</label>
+            <input name="password" type="password" autocomplete="current-password" required />
+            <button class="btn" type="submit">Intră</button>
+            <div class="hint" id="loginMsg"></div>
+          </form>
+        </div>
+
+        <div id="signupTab" class="tab-panel hidden">
+          <h2>Sign up</h2>
+          <form id="signupForm" class="form">
+            <label>Email</label>
+            <input name="email" type="email" autocomplete="email" required />
+            <label>Parolă (minim 6)</label>
+            <input name="password" type="password" autocomplete="new-password" minlength="6" required />
+            <button class="btn" type="submit">Creează cont</button>
+            <div class="hint" id="signupMsg"></div>
+          </form>
+        </div>
+      </div>
+
+      <div id="appView" class="hidden">
+        <div class="card profile">
+          <div class="profile-left">
+            <button id="avatarBtn" class="avatar" title="Apasă ca să vezi ID-ul">
+              <span id="avatarText">?</span>
+            </button>
+            <div>
+              <div class="muted">Cont</div>
+              <div id="meEmail" class="mono"></div>
+            </div>
+          </div>
+          <div class="profile-right">
+            <div class="pill">
+              <span class="muted">ID</span>
+              <span id="meId" class="mono hidden"></span>
+              <span id="meIdHidden" class="mono">•••••</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <h3>Adaugă prieten</h3>
+            <form id="addFriendForm" class="form-inline">
+              <input name="friendPublicId" inputmode="numeric" placeholder="ID (5–9 cifre)" required />
+              <button class="btn" type="submit">Adaugă</button>
+            </form>
+            <div class="hint" id="addFriendMsg"></div>
+          </div>
+
+          <div class="card">
+            <h3>Prieteni</h3>
+            <div id="friendsList" class="list"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Apel</h3>
+          <div class="call-row">
+            <div class="muted">Status:</div>
+            <div id="callStatus" class="mono">idle</div>
+          </div>
+          <div class="call-actions">
+            <button id="hangupBtn" class="btn btn-danger hidden">Închide</button>
+            <button id="acceptBtn" class="btn hidden">Acceptă</button>
+            <button id="declineBtn" class="btn btn-ghost hidden">Respinge</button>
+          </div>
+          <audio id="remoteAudio" autoplay></audio>
+        </div>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
