@@ -116,14 +116,25 @@ async function main() {
   });
 
   app.post("/api/friends/add", requireAuth, (req, res) => {
-    const friendPublicId = Number(req.body.friendPublicId);
-    if (!Number.isInteger(friendPublicId)) return res.status(400).json({ error: "invalid_id" });
+    const friendEmailRaw = req.body.friendEmail;
+    const friendPublicIdRaw = req.body.friendPublicId;
+
+    let friend = null;
+    if (typeof friendEmailRaw === "string" && friendEmailRaw.trim()) {
+      const friendEmail = friendEmailRaw.trim().toLowerCase();
+      if (!friendEmail.includes("@") || friendEmail.length > 254) return res.status(400).json({ error: "invalid_email" });
+      friend = getOne("SELECT id FROM users WHERE email = ?", [friendEmail]);
+      if (!friend) return res.status(404).json({ error: "user_not_found" });
+    } else {
+      const friendPublicId = Number(friendPublicIdRaw);
+      if (!Number.isInteger(friendPublicId)) return res.status(400).json({ error: "invalid_id" });
+      friend = getOne("SELECT id FROM users WHERE public_id = ?", [friendPublicId]);
+      if (!friend) return res.status(404).json({ error: "user_not_found" });
+    }
 
     const me = getOne("SELECT id FROM users WHERE id = ?", [req.session.userId]);
     if (!me) return res.status(401).json({ error: "not_authenticated" });
 
-    const friend = getOne("SELECT id FROM users WHERE public_id = ?", [friendPublicId]);
-    if (!friend) return res.status(404).json({ error: "user_not_found" });
     if (friend.id === req.session.userId) return res.status(400).json({ error: "cannot_add_self" });
 
     run("INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)", [req.session.userId, friend.id]);

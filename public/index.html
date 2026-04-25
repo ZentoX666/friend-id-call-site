@@ -56,10 +56,9 @@
             </div>
           </div>
           <div class="profile-right">
-            <div id="idPill" class="pill" title="Apasă ca să vezi / copiezi ID-ul">
-              <span class="muted">ID</span>
-              <span id="meId" class="mono hidden"></span>
-              <span id="meIdHidden" class="mono">•••••</span>
+            <div class="pill">
+              <span class="muted">Email</span>
+              <span id="meEmailPill" class="mono"></span>
             </div>
           </div>
         </div>
@@ -68,7 +67,7 @@
           <div class="card">
             <h3>Adaugă prieten</h3>
             <form id="addFriendForm" class="form-inline">
-              <input name="friendPublicId" inputmode="numeric" placeholder="ID (5–9 cifre)" required />
+              <input name="friendEmail" type="email" autocomplete="off" placeholder="Email prieten" required />
               <button class="btn" type="submit">Adaugă</button>
             </form>
             <div class="hint" id="addFriendMsg"></div>
