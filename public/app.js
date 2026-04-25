@@ -14,6 +14,7 @@ const meId = el("meId");
 const meIdHidden = el("meIdHidden");
 const avatarText = el("avatarText");
 const avatarBtn = el("avatarBtn");
+const idPill = el("idPill");
 
 const addFriendForm = el("addFriendForm");
 const addFriendMsg = el("addFriendMsg");
@@ -139,6 +140,29 @@ function computeAvatar(email) {
   return letters || (email?.[0]?.toUpperCase() ?? "?");
 }
 
+async function revealAndCopyMyId() {
+  if (!me?.publicId) return;
+
+  // reveal in UI
+  meId.textContent = String(me.publicId);
+  meId.classList.remove("hidden");
+  meIdHidden.classList.add("hidden");
+
+  // try copy
+  try {
+    await navigator.clipboard.writeText(String(me.publicId));
+    setMsg(addFriendMsg, `ID copiat: ${me.publicId}`, "muted");
+  } catch {
+    setMsg(addFriendMsg, `ID-ul tău: ${me.publicId}`, "muted");
+  }
+
+  // auto-hide after 10s
+  setTimeout(() => {
+    meId.classList.add("hidden");
+    meIdHidden.classList.remove("hidden");
+  }, 10000);
+}
+
 async function refreshMe() {
   const data = await api("/api/me");
   if (!data.authenticated) {
@@ -150,6 +174,8 @@ async function refreshMe() {
   meEmail.textContent = me.email;
   avatarText.textContent = computeAvatar(me.email);
   meId.textContent = String(me.publicId);
+  meId.classList.add("hidden");
+  meIdHidden.classList.remove("hidden");
   setCallState("idle");
   setIncomingUI(false);
   setInCallUI(false);
@@ -346,10 +372,11 @@ function cleanupCall() {
 initTabs();
 
 avatarBtn.addEventListener("click", () => {
-  const isHidden = !meId.classList.contains("hidden");
-  // toggle
-  meId.classList.toggle("hidden");
-  meIdHidden.classList.toggle("hidden");
+  revealAndCopyMyId();
+});
+
+idPill?.addEventListener("click", () => {
+  revealAndCopyMyId();
 });
 
 logoutBtn.addEventListener("click", async () => {
@@ -402,7 +429,12 @@ addFriendForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   setMsg(addFriendMsg, "Adaugă...");
   const form = new FormData(addFriendForm);
-  const friendPublicId = form.get("friendPublicId");
+  const raw = String(form.get("friendPublicId") || "");
+  const friendPublicId = raw.replace(/\D/g, "");
+  if (friendPublicId.length < 5 || friendPublicId.length > 9) {
+    setMsg(addFriendMsg, "ID invalid (trebuie 5–9 cifre).", "error");
+    return;
+  }
   try {
     await api("/api/friends/add", { method: "POST", body: JSON.stringify({ friendPublicId }) });
     setMsg(addFriendMsg, "Gata.");
