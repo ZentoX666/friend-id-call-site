@@ -35,6 +35,8 @@ const micMuteBtn = el("micMuteBtn");
 const remoteMuteBtn = el("remoteMuteBtn");
 const remoteVolume = el("remoteVolume");
 const remoteVolumeLabel = el("remoteVolumeLabel");
+const micVolume = el("micVolume");
+const micVolumeLabel = el("micVolumeLabel");
 
 let socket = null;
 let me = null; // { publicId, email }
@@ -49,10 +51,14 @@ let chatPeer = null; // { publicId, email }
 let audioCtx = null;
 let audioUnlocked = false;
 
-let remoteSource = null;
+let remoteStreamSource = null;
 let remoteGain = null;
 let remoteMuted = false;
 let micMuted = false;
+
+let localGain = null;
+let localRawTrack = null;
+let localProcessedTrack = null;
 
 function setMsg(node, text, kind = "muted") {
   node.textContent = text || "";
@@ -165,6 +171,8 @@ function unlockAudio() {
   if (audioUnlocked) return;
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    // Ensure it’s running after a user gesture (required on many browsers)
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     gain.gain.value = 0;
@@ -238,18 +246,16 @@ async function openChatWith(friend) {
   }
 }
 
-function ensureRemoteAudioGraph() {
+function ensureRemoteAudioGraph(stream) {
   unlockAudio();
   if (!audioCtx) return;
-  if (remoteSource && remoteGain) return;
+  if (remoteStreamSource && remoteGain) return;
   try {
-    remoteSource = audioCtx.createMediaElementSource(remoteAudio);
+    remoteStreamSource = audioCtx.createMediaStreamSource(stream);
     remoteGain = audioCtx.createGain();
     remoteGain.gain.value = 1.0;
-    remoteSource.connect(remoteGain).connect(audioCtx.destination);
-  } catch {
-    // Some browsers can throw if called twice; ignore.
-  }
+    remoteStreamSource.connect(remoteGain).connect(audioCtx.destination);
+  } catch {}
 }
 
 function setRemoteVolumePercent(pct) {
@@ -257,7 +263,6 @@ function setRemoteVolumePercent(pct) {
   if (remoteVolumeLabel) remoteVolumeLabel.textContent = `${Math.round(v)}%`;
   if (remoteVolume) remoteVolume.value = String(Math.round(v));
 
-  ensureRemoteAudioGraph();
   if (!remoteGain) return;
   if (remoteMuted) {
     remoteGain.gain.value = 0;
@@ -275,8 +280,20 @@ function setRemoteMuted(on) {
 function setMicMuted(on) {
   micMuted = !!on;
   if (micMuteBtn) micMuteBtn.textContent = micMuted ? "Unmute microfon" : "Mute microfon";
-  const track = localStream?.getAudioTracks?.()[0];
-  if (track) track.enabled = !micMuted;
+  if (localRawTrack) localRawTrack.enabled = !micMuted; // privacy: stop sending mic frames
+  setMicVolumePercent(micVolume?.value ?? 100);
+}
+
+function setMicVolumePercent(pct) {
+  const v = Math.max(0, Math.min(200, Number(pct)));
+  if (micVolumeLabel) micVolumeLabel.textContent = `${Math.round(v)}%`;
+  if (micVolume) micVolume.value = String(Math.round(v));
+  if (!localGain) return;
+  if (micMuted) {
+    localGain.gain.value = 0;
+    return;
+  }
+  localGain.gain.value = v / 100;
 }
 
 async function refreshMe() {
@@ -455,8 +472,9 @@ function makePeerConnection(toPublicId) {
   pc.ontrack = (evt) => {
     const [stream] = evt.streams;
     remoteAudio.srcObject = stream;
-    // Ensure volume > 100% works via WebAudio
-    ensureRemoteAudioGraph();
+    // Route remote audio via WebAudio so 0–200% + mute works reliably
+    remoteAudio.muted = true; // avoid double-audio from element output
+    ensureRemoteAudioGraph(stream);
     setRemoteVolumePercent(remoteVolume?.value ?? 100);
   };
 
@@ -512,7 +530,26 @@ async function getLocalAudio() {
     },
     video: false,
   });
+
+  // Build a processed track so we can boost/cut mic volume 0–200%
+  unlockAudio();
+  const rawTrack = localStream.getAudioTracks()[0];
+  localRawTrack = rawTrack || null;
+  if (audioCtx && rawTrack) {
+    try {
+      const src = audioCtx.createMediaStreamSource(localStream);
+      localGain = audioCtx.createGain();
+      const dest = audioCtx.createMediaStreamDestination();
+      src.connect(localGain).connect(dest);
+      localProcessedTrack = dest.stream.getAudioTracks()[0] || null;
+    } catch {
+      localGain = null;
+      localProcessedTrack = null;
+    }
+  }
+
   setMicMuted(micMuted);
+  setMicVolumePercent(micVolume?.value ?? 100);
   return localStream;
 }
 
@@ -527,7 +564,12 @@ async function startCall(toPublicId) {
     isCaller = true;
 
     const stream = await getLocalAudio();
-    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+    // Send processed mic track if available (supports 0–200% outgoing volume)
+    if (localProcessedTrack) {
+      pc.addTrack(localProcessedTrack, stream);
+    } else {
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+    }
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -551,7 +593,11 @@ async function acceptIncoming() {
     isCaller = false;
 
     const stream = await getLocalAudio();
-    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+    if (localProcessedTrack) {
+      pc.addTrack(localProcessedTrack, stream);
+    } else {
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+    }
 
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
@@ -734,10 +780,16 @@ remoteVolume?.addEventListener("input", () => {
   setRemoteVolumePercent(remoteVolume.value);
 });
 
+micVolume?.addEventListener("input", () => {
+  unlockAudio();
+  setMicVolumePercent(micVolume.value);
+});
+
 // Initialize UI defaults
 setRemoteVolumePercent(100);
 setRemoteMuted(false);
 setMicMuted(false);
+setMicVolumePercent(100);
 
 // On load
 refreshMe().catch(() => show("auth"));
