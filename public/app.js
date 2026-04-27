@@ -38,6 +38,24 @@ const remoteVolumeLabel = el("remoteVolumeLabel");
 const micVolume = el("micVolume");
 const micVolumeLabel = el("micVolumeLabel");
 
+const mainTitle = el("mainTitle");
+const chatPanel = el("chatPanel");
+const callPanel = el("callPanel");
+const settingsPanel = el("settingsPanel");
+const mainChatTab = el("mainChatTab");
+const mainCallTab = el("mainCallTab");
+const mainSettingsTab = el("mainSettingsTab");
+const openSettingsBtn = el("openSettingsBtn");
+
+const chatWrap = el("chatWrap");
+const chatEmpty = el("chatEmpty");
+
+const settingsForm = el("settingsForm");
+const settingsMsg = el("settingsMsg");
+const settingsDisplayName = el("settingsDisplayName");
+const settingsAvatarUrl = el("settingsAvatarUrl");
+const meIdPill = el("meIdPill");
+
 let socket = null;
 let me = null; // { publicId, email }
 let pc = null;
@@ -91,6 +109,16 @@ function setIncomingUI(on) {
 
 function setInCallUI(on) {
   hangupBtn.classList.toggle("hidden", !on);
+}
+
+function setMainTab(name) {
+  mainChatTab?.classList.toggle("active", name === "chat");
+  mainCallTab?.classList.toggle("active", name === "call");
+  mainSettingsTab?.classList.toggle("active", name === "settings");
+
+  chatPanel?.classList.toggle("hidden", name !== "chat");
+  callPanel?.classList.toggle("hidden", name !== "call");
+  settingsPanel?.classList.toggle("hidden", name !== "settings");
 }
 
 async function api(path, options = {}) {
@@ -235,6 +263,12 @@ function renderChatMessages(messages) {
 async function openChatWith(friend) {
   chatPeer = friend;
   if (chatWith) chatWith.textContent = friend ? `${friend.displayName || `User ${friend.publicId}`}` : "-";
+  if (mainTitle) mainTitle.textContent = friend ? (friend.displayName || `User ${friend.publicId}`) : "Selectează un prieten";
+  if (chatWrap && chatEmpty) {
+    chatWrap.classList.toggle("hidden", !friend);
+    chatEmpty.classList.toggle("hidden", !!friend);
+  }
+  setMainTab("chat");
   if (!friend) return;
 
   try {
@@ -350,6 +384,7 @@ async function refreshMe() {
     return;
   }
   me = data.user;
+  if (meIdPill) meIdPill.textContent = String(me.publicId || "");
   if (meName) meName.textContent = me.displayName || computeAvatar(me.email, me.displayName);
   meEmail.textContent = me.email;
   if (meEmailPill) meEmailPill.textContent = me.email;
@@ -369,6 +404,10 @@ async function refreshMe() {
   setIncomingUI(false);
   setInCallUI(false);
   show("app");
+
+  // prefill settings
+  if (settingsDisplayName) settingsDisplayName.value = me.displayName || "";
+  if (settingsAvatarUrl) settingsAvatarUrl.value = me.avatarUrl || "";
 
   // Connect socket for signaling
   if (!socket) {
@@ -512,6 +551,12 @@ async function refreshFriends() {
     row.appendChild(meta);
     row.appendChild(actions);
     friendsList.appendChild(row);
+
+    row.addEventListener("click", () => {
+      document.querySelectorAll(".friend.active").forEach((n) => n.classList.remove("active"));
+      row.classList.add("active");
+      openChatWith(f);
+    });
   }
 }
 
@@ -854,11 +899,38 @@ micVolume?.addEventListener("input", () => {
   setMicVolumePercent(micVolume.value);
 });
 
+mainChatTab?.addEventListener("click", () => setMainTab("chat"));
+mainCallTab?.addEventListener("click", () => setMainTab("call"));
+mainSettingsTab?.addEventListener("click", () => setMainTab("settings"));
+openSettingsBtn?.addEventListener("click", () => setMainTab("settings"));
+
+settingsForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setMsg(settingsMsg, "Salvez...");
+  const form = new FormData(settingsForm);
+  const displayName = String(form.get("displayName") || "").trim();
+  const avatarUrl = String(form.get("avatarUrl") || "").trim();
+  try {
+    const data = await api("/api/profile", { method: "POST", body: JSON.stringify({ displayName, avatarUrl }) });
+    me = data.user;
+    setMsg(settingsMsg, "Gata.");
+    await refreshMe();
+  } catch (err) {
+    const code = err?.data?.error || "error";
+    setMsg(settingsMsg, code, "error");
+  }
+});
+
 // Initialize UI defaults
 setRemoteVolumePercent(100);
 setRemoteMuted(false);
 setMicMuted(false);
 setMicVolumePercent(100);
+setMainTab("chat");
+if (chatWrap && chatEmpty) {
+  chatWrap.classList.add("hidden");
+  chatEmpty.classList.remove("hidden");
+}
 
 // On load
 refreshMe().catch(() => show("auth"));

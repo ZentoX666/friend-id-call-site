@@ -49,82 +49,116 @@
       </div>
 
       <div id="appView" class="hidden">
-        <div class="card profile">
-          <div class="profile-left">
-            <button id="avatarBtn" class="avatar" title="Apasă ca să vezi ID-ul">
+        <div class="app-shell">
+          <aside class="sidebar">
+            <div class="me-card">
+              <button id="avatarBtn" class="avatar" title="Profil">
                 <img id="avatarImg" class="avatar-img hidden" alt="avatar" />
-              <span id="avatarText">?</span>
-            </button>
-            <div>
-              <div class="muted">Cont</div>
+                <span id="avatarText">?</span>
+              </button>
+              <div class="me-meta">
                 <div id="meName" class="profile-name"></div>
-                <div id="meEmail" class="mono muted"></div>
+                <div id="meEmail" class="mono muted hidden"></div>
+              </div>
+              <button id="openSettingsBtn" class="btn btn-ghost btn-icon" type="button" title="Setări">⚙</button>
             </div>
-          </div>
-          <div class="profile-right">
-            <div class="pill">
-              <span class="muted">Email</span>
-              <span id="meEmailPill" class="mono"></span>
+
+            <div class="sidebar-section">
+              <div class="sidebar-title muted">Adaugă prieten (ID)</div>
+              <form id="addFriendForm" class="form-inline">
+                <input name="friendPublicId" inputmode="numeric" autocomplete="off" placeholder="ID" required />
+                <button class="btn" type="submit">+</button>
+              </form>
+              <div class="hint" id="addFriendMsg"></div>
             </div>
-          </div>
-        </div>
 
-        <div class="grid">
-          <div class="card">
-            <h3>Adaugă prieten</h3>
-            <form id="addFriendForm" class="form-inline">
-              <input name="friendPublicId" inputmode="numeric" autocomplete="off" placeholder="ID prieten" required />
-              <button class="btn" type="submit">Adaugă</button>
-            </form>
-            <div class="hint" id="addFriendMsg"></div>
-          </div>
-
-          <div class="card">
-            <h3>Prieteni</h3>
-            <div id="friendsList" class="list"></div>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3>Apel</h3>
-          <div class="call-row">
-            <div class="muted">Status:</div>
-            <div id="callStatus" class="mono">idle</div>
-          </div>
-          <div class="call-actions">
-            <button id="hangupBtn" class="btn btn-danger hidden">Închide</button>
-            <button id="acceptBtn" class="btn hidden">Acceptă</button>
-            <button id="declineBtn" class="btn btn-ghost hidden">Respinge</button>
-          </div>
-          <div class="call-controls">
-            <button id="micMuteBtn" class="btn btn-ghost" type="button">Mute microfon</button>
-            <button id="remoteMuteBtn" class="btn btn-ghost" type="button">Mute audio</button>
-            <div class="volume">
-              <label for="remoteVolume" class="muted">Îl auzi</label>
-              <input id="remoteVolume" type="range" min="0" max="200" step="1" value="100" />
-              <div id="remoteVolumeLabel" class="mono muted">100%</div>
+            <div class="sidebar-section">
+              <div class="sidebar-title muted">Prieteni</div>
+              <div id="friendsList" class="friends"></div>
             </div>
-            <div class="volume">
-              <label for="micVolume" class="muted">Te aude</label>
-              <input id="micVolume" type="range" min="0" max="200" step="1" value="100" />
-              <div id="micVolumeLabel" class="mono muted">100%</div>
-            </div>
-          </div>
-          <audio id="remoteAudio" autoplay></audio>
-        </div>
+          </aside>
 
-        <div class="card">
-          <h3>Chat</h3>
-          <div class="call-row">
-            <div class="muted">Cu:</div>
-            <div id="chatWith" class="mono">-</div>
-          </div>
-          <div id="chatMessages" class="chat"></div>
-          <form id="chatForm" class="form-inline chat-form">
-            <input id="chatInput" name="body" placeholder="Scrie mesaj..." autocomplete="off" />
-            <button class="btn" type="submit">Trimite</button>
-          </form>
-          <div class="hint" id="chatMsg"></div>
+          <main class="main">
+            <div class="main-header">
+              <div class="main-title mono" id="mainTitle">Selectează un prieten</div>
+              <div class="main-actions">
+                <button id="mainChatTab" class="tab2 active" type="button">Chat</button>
+                <button id="mainCallTab" class="tab2" type="button">Apel</button>
+                <button id="mainSettingsTab" class="tab2" type="button">Setări</button>
+              </div>
+            </div>
+
+            <section id="chatPanel" class="panel">
+              <div class="empty-state" id="chatEmpty">Alege un prieten din stânga ca să deschizi chat-ul.</div>
+              <div id="chatWrap" class="hidden">
+                <div class="call-row">
+                  <div class="muted">Cu:</div>
+                  <div id="chatWith" class="mono">-</div>
+                </div>
+                <div id="chatMessages" class="chat"></div>
+                <form id="chatForm" class="form-inline chat-form">
+                  <input id="chatInput" name="body" placeholder="Scrie mesaj..." autocomplete="off" />
+                  <button class="btn" type="submit">Trimite</button>
+                </form>
+                <div class="hint" id="chatMsg"></div>
+              </div>
+            </section>
+
+            <section id="callPanel" class="panel hidden">
+              <div class="call-row">
+                <div class="muted">Status:</div>
+                <div id="callStatus" class="mono">idle</div>
+              </div>
+              <div class="call-actions">
+                <button id="hangupBtn" class="btn btn-danger hidden">Închide</button>
+                <button id="acceptBtn" class="btn hidden">Acceptă</button>
+                <button id="declineBtn" class="btn btn-ghost hidden">Respinge</button>
+              </div>
+              <div class="call-controls">
+                <button id="micMuteBtn" class="btn btn-ghost" type="button">Mute microfon</button>
+                <button id="remoteMuteBtn" class="btn btn-ghost" type="button">Mute audio</button>
+                <div class="volume">
+                  <label for="remoteVolume" class="muted">Îl auzi</label>
+                  <input id="remoteVolume" type="range" min="0" max="200" step="1" value="100" />
+                  <div id="remoteVolumeLabel" class="mono muted">100%</div>
+                </div>
+                <div class="volume">
+                  <label for="micVolume" class="muted">Te aude</label>
+                  <input id="micVolume" type="range" min="0" max="200" step="1" value="100" />
+                  <div id="micVolumeLabel" class="mono muted">100%</div>
+                </div>
+              </div>
+              <audio id="remoteAudio" autoplay></audio>
+            </section>
+
+            <section id="settingsPanel" class="panel hidden">
+              <div class="settings-grid">
+                <div class="card inner-card">
+                  <h3>Profil</h3>
+                  <form id="settingsForm" class="form">
+                    <label>Nume</label>
+                    <input name="displayName" id="settingsDisplayName" maxlength="40" placeholder="Numele tău" />
+                    <label>Avatar URL</label>
+                    <input name="avatarUrl" id="settingsAvatarUrl" maxlength="500" placeholder="https://..." />
+                    <button class="btn" type="submit">Salvează</button>
+                    <div class="hint" id="settingsMsg"></div>
+                  </form>
+                </div>
+
+                <div class="card inner-card">
+                  <h3>Cont</h3>
+                  <div class="pill">
+                    <span class="muted">ID-ul tău</span>
+                    <span id="meIdPill" class="mono"></span>
+                  </div>
+                  <div class="pill">
+                    <span class="muted">Email (doar tu)</span>
+                    <span id="meEmailPill" class="mono"></span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </main>
         </div>
       </div>
     </div>

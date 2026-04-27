@@ -126,6 +126,29 @@ async function main() {
     });
   });
 
+  app.post("/api/profile", requireAuth, async (req, res) => {
+    try {
+      const displayName = String(req.body.displayName || "").trim();
+      const avatarUrl = String(req.body.avatarUrl || "").trim();
+      if (displayName && displayName.length > 40) return res.status(400).json({ error: "invalid_display_name" });
+      if (avatarUrl && avatarUrl.length > 500) return res.status(400).json({ error: "invalid_avatar_url" });
+
+      await run("UPDATE users SET display_name = ?, avatar_url = ? WHERE id = ?", [
+        displayName || null,
+        avatarUrl || null,
+        req.session.userId,
+      ]);
+
+      const user = await getOne(
+        "SELECT public_id AS publicId, email, display_name AS displayName, avatar_url AS avatarUrl FROM users WHERE id = ?",
+        [req.session.userId]
+      );
+      res.json({ ok: true, user });
+    } catch {
+      res.status(500).json({ error: "server_error" });
+    }
+  });
+
   app.get("/api/friends", requireAuth, async (req, res) => {
     const rows = await getAll(
       `
