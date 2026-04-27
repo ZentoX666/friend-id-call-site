@@ -15,6 +15,21 @@ let SQL = null;
 let sqliteDb = null;
 let pgPool = null;
 
+function normalizeRow(row) {
+  if (!row) return row;
+  // pg lowercases unquoted aliases (publicId -> publicid). Normalize to the app's expected casing.
+  const out = { ...row };
+  if (out.publicId == null && out.publicid != null) out.publicId = out.publicid;
+  if (out.displayName == null && out.displayname != null) out.displayName = out.displayname;
+  if (out.avatarUrl == null && out.avatarurl != null) out.avatarUrl = out.avatarurl;
+
+  if (out.fromPublicId == null && out.frompublicid != null) out.fromPublicId = out.frompublicid;
+  if (out.toPublicId == null && out.topublicid != null) out.toPublicId = out.topublicid;
+  if (out.createdAt == null && out.createdat != null) out.createdAt = out.createdat;
+
+  return out;
+}
+
 function toPg(sql) {
   // Convert sqlite-style `?` placeholders into $1..$n for pg
   let i = 0;
@@ -142,28 +157,28 @@ async function getOne(sql, params = []) {
   ensureInit();
   if (pgPool) {
     const res = await pgPool.query(toPg(sql), params);
-    return res.rows[0] || null;
+    return normalizeRow(res.rows[0] || null);
   }
   const stmt = sqliteDb.prepare(sql);
   stmt.bind(params);
   let row = null;
   if (stmt.step()) row = stmt.getAsObject();
   stmt.free();
-  return row && Object.keys(row).length ? row : null;
+  return row && Object.keys(row).length ? normalizeRow(row) : null;
 }
 
 async function getAll(sql, params = []) {
   ensureInit();
   if (pgPool) {
     const res = await pgPool.query(toPg(sql), params);
-    return res.rows;
+    return res.rows.map(normalizeRow);
   }
   const stmt = sqliteDb.prepare(sql);
   stmt.bind(params);
   const rows = [];
   while (stmt.step()) rows.push(stmt.getAsObject());
   stmt.free();
-  return rows;
+  return rows.map(normalizeRow);
 }
 
 async function run(sql, params = []) {
