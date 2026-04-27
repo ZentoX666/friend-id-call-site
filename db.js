@@ -1,73 +1,150 @@
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const initSqlJs = require("sql.js");
 
-const dbPath = path.join(__dirname, "data.sqlite");
+const initSqlJs = require("sql.js");
+const { Pool } = require("pg");
+
+// If DATABASE_URL is present, we use Postgres (Neon / Supabase / Render Postgres).
+const DATABASE_URL = process.env.DATABASE_URL;
+
+// Optional local sqlite file (dev / fallback)
+const dbPath = process.env.DB_PATH ? path.resolve(process.env.DB_PATH) : path.join(__dirname, "data.sqlite");
 
 let SQL = null;
-let db = null;
+let sqliteDb = null;
+let pgPool = null;
+
+function toPg(sql) {
+  // Convert sqlite-style `?` placeholders into $1..$n for pg
+  let i = 0;
+  let out = String(sql);
+
+  // Handle "INSERT OR IGNORE" (sqlite) -> "INSERT ... ON CONFLICT DO NOTHING" (pg)
+  // This is a minimal transform for our current usage (friendships).
+  out = out.replace(/\bINSERT\s+OR\s+IGNORE\s+INTO\b/gi, "INSERT INTO");
+
+  // Replace ? with $n
+  out = out.replace(/\?/g, () => `$${++i}`);
+
+  // If the query originally used INSERT OR IGNORE, we need to add ON CONFLICT DO NOTHING.
+  // We detect this by checking the original SQL (before replacement).
+  const usedIgnore = /\bINSERT\s+OR\s+IGNORE\s+INTO\b/i.test(sql);
+  if (usedIgnore) {
+    // If caller already provided ON CONFLICT, don't double-append.
+    if (!/\bON\s+CONFLICT\b/i.test(out)) out = `${out} ON CONFLICT DO NOTHING`;
+  }
+
+  return out;
+}
 
 function ensureInit() {
-  if (!db) throw new Error("db_not_initialized");
+  if (!sqliteDb && !pgPool) throw new Error("db_not_initialized");
 }
 
 async function initDb() {
-  if (db) return db;
+  if (pgPool || sqliteDb) return true;
+
+  if (DATABASE_URL) {
+    pgPool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: DATABASE_URL.includes("sslmode=require") || DATABASE_URL.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+    });
+
+    // Create schema (idempotent)
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        public_id BIGINT NOT NULL UNIQUE,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        display_name TEXT,
+        avatar_url TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS friendships (
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        friend_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, friend_user_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        from_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        to_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+
+    return true;
+  }
+
+  // sqlite fallback
   SQL = await initSqlJs({
     locateFile: (file) => path.join(__dirname, "node_modules", "sql.js", "dist", file),
   });
 
+  try {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  } catch {}
+
   const exists = fs.existsSync(dbPath);
   const bytes = exists ? new Uint8Array(fs.readFileSync(dbPath)) : undefined;
-  db = new SQL.Database(bytes);
+  sqliteDb = new SQL.Database(bytes);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      public_id INTEGER NOT NULL UNIQUE,
-      email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      display_name TEXT,
-      avatar_url TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+  sqliteDb.run(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        public_id INTEGER NOT NULL UNIQUE,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        display_name TEXT,
+        avatar_url TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
 
-    CREATE TABLE IF NOT EXISTS friendships (
-      user_id INTEGER NOT NULL,
-      friend_user_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (user_id, friend_user_id)
-    );
+      CREATE TABLE IF NOT EXISTS friendships (
+        user_id INTEGER NOT NULL,
+        friend_user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (user_id, friend_user_id)
+      );
 
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      from_user_id INTEGER NOT NULL,
-      to_user_id INTEGER NOT NULL,
-      body TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+      CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user_id INTEGER NOT NULL,
+        to_user_id INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
   `);
 
   // Lightweight migrations for existing DB files
-  const userCols = getAll("PRAGMA table_info(users)");
+  const userCols = await getAll("PRAGMA table_info(users)");
   const colNames = new Set(userCols.map((c) => c.name));
-  if (!colNames.has("display_name")) db.run("ALTER TABLE users ADD COLUMN display_name TEXT");
-  if (!colNames.has("avatar_url")) db.run("ALTER TABLE users ADD COLUMN avatar_url TEXT");
+  if (!colNames.has("display_name")) sqliteDb.run("ALTER TABLE users ADD COLUMN display_name TEXT");
+  if (!colNames.has("avatar_url")) sqliteDb.run("ALTER TABLE users ADD COLUMN avatar_url TEXT");
 
   persist();
-  return db;
+  return true;
 }
 
 function persist() {
-  if (!db) return;
-  const data = db.export();
+  if (!sqliteDb) return;
+  const data = sqliteDb.export();
   fs.writeFileSync(dbPath, Buffer.from(data));
 }
 
-function getOne(sql, params = []) {
+async function getOne(sql, params = []) {
   ensureInit();
-  const stmt = db.prepare(sql);
+  if (pgPool) {
+    const res = await pgPool.query(toPg(sql), params);
+    return res.rows[0] || null;
+  }
+  const stmt = sqliteDb.prepare(sql);
   stmt.bind(params);
   let row = null;
   if (stmt.step()) row = stmt.getAsObject();
@@ -75,9 +152,13 @@ function getOne(sql, params = []) {
   return row && Object.keys(row).length ? row : null;
 }
 
-function getAll(sql, params = []) {
+async function getAll(sql, params = []) {
   ensureInit();
-  const stmt = db.prepare(sql);
+  if (pgPool) {
+    const res = await pgPool.query(toPg(sql), params);
+    return res.rows;
+  }
+  const stmt = sqliteDb.prepare(sql);
   stmt.bind(params);
   const rows = [];
   while (stmt.step()) rows.push(stmt.getAsObject());
@@ -85,9 +166,13 @@ function getAll(sql, params = []) {
   return rows;
 }
 
-function run(sql, params = []) {
+async function run(sql, params = []) {
   ensureInit();
-  db.run(sql, params);
+  if (pgPool) {
+    await pgPool.query(toPg(sql), params);
+    return;
+  }
+  sqliteDb.run(sql, params);
   persist();
 }
 
@@ -96,21 +181,23 @@ function randomInt(min, max) {
   return crypto.randomInt(min, max + 1);
 }
 
-function generateUniquePublicId() {
+async function generateUniquePublicId() {
   // 5-9 digits -> 10000..999999999
   const min = 10000;
   const max = 999999999;
 
   for (let i = 0; i < 25; i++) {
     const candidate = randomInt(min, max);
-    const exists = getOne("SELECT 1 AS ok FROM users WHERE public_id = ?", [candidate]);
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await getOne("SELECT 1 AS ok FROM users WHERE public_id = ?", [candidate]);
     if (!exists) return candidate;
   }
 
   // Fallback: widen retries (extremely unlikely to hit)
   while (true) {
     const candidate = randomInt(min, max);
-    const exists = getOne("SELECT 1 AS ok FROM users WHERE public_id = ?", [candidate]);
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await getOne("SELECT 1 AS ok FROM users WHERE public_id = ?", [candidate]);
     if (!exists) return candidate;
   }
 }
