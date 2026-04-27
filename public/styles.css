@@ -117,7 +117,18 @@ input:focus{border-color:rgba(110,168,254,.65);box-shadow:0 0 0 4px rgba(110,168
   background: rgba(10,15,30,.45);
   border:1px solid var(--border);
 }
-.friend .meta{display:flex;flex-direction:column;gap:2px}
+.friend-meta{display:flex;align-items:center;gap:10px}
+.friend-avatar{
+  width:38px;height:38px;border-radius:12px;
+  background: radial-gradient(40px 40px at 30% 25%, rgba(255,255,255,.20), rgba(255,255,255,.05)),
+              linear-gradient(180deg, rgba(110,168,254,.65), rgba(255,90,122,.25));
+  border:1px solid rgba(255,255,255,.14);
+  display:grid;place-items:center;
+  font-weight:900;
+  overflow:hidden;
+}
+.friend-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.friend-name{font-weight:800}
 .friend .actions{display:flex;gap:8px}
 .call-row{display:flex;gap:10px;align-items:center;margin:10px 0}
 .call-actions{display:flex;gap:10px;flex-wrap:wrap}

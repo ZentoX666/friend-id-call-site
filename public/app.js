@@ -234,7 +234,7 @@ function renderChatMessages(messages) {
 
 async function openChatWith(friend) {
   chatPeer = friend;
-  if (chatWith) chatWith.textContent = friend ? `${friend.email}` : "-";
+  if (chatWith) chatWith.textContent = friend ? `${friend.displayName || `User ${friend.publicId}`}` : "-";
   if (!friend) return;
 
   try {
@@ -461,7 +461,7 @@ async function refreshFriends() {
   if (!data.friends.length) {
     const empty = document.createElement("div");
     empty.className = "muted";
-    empty.textContent = "Nu ai prieteni încă. Adaugă pe cineva prin email.";
+    empty.textContent = "Nu ai prieteni încă. Adaugă pe cineva prin ID.";
     friendsList.appendChild(empty);
     return;
   }
@@ -471,15 +471,29 @@ async function refreshFriends() {
     row.className = "friend";
 
     const meta = document.createElement("div");
-    meta.className = "meta";
-    const top = document.createElement("div");
-    top.className = "mono";
-    top.textContent = String(f.publicId);
-    const bottom = document.createElement("div");
-    bottom.className = "muted";
-    bottom.textContent = f.email;
-    meta.appendChild(top);
-    meta.appendChild(bottom);
+    meta.className = "meta friend-meta";
+
+    const avatar = document.createElement("div");
+    avatar.className = "friend-avatar";
+    if (f.avatarUrl) {
+      const img = document.createElement("img");
+      img.src = f.avatarUrl;
+      img.alt = "avatar";
+      img.loading = "lazy";
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = computeAvatar(null, f.displayName || String(f.publicId));
+    }
+
+    const who = document.createElement("div");
+    who.className = "friend-who";
+    const name = document.createElement("div");
+    name.className = "friend-name";
+    name.textContent = f.displayName || `User ${f.publicId}`;
+    who.appendChild(name);
+
+    meta.appendChild(avatar);
+    meta.appendChild(who);
 
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -758,13 +772,13 @@ addFriendForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   setMsg(addFriendMsg, "Adaugă...");
   const form = new FormData(addFriendForm);
-  const friendEmail = String(form.get("friendEmail") || "").trim().toLowerCase();
-  if (!friendEmail.includes("@") || friendEmail.length > 254) {
-    setMsg(addFriendMsg, "Email invalid.", "error");
+  const friendPublicId = Number(form.get("friendPublicId"));
+  if (!Number.isInteger(friendPublicId)) {
+    setMsg(addFriendMsg, "ID invalid.", "error");
     return;
   }
   try {
-    await api("/api/friends/add", { method: "POST", body: JSON.stringify({ friendEmail }) });
+    await api("/api/friends/add", { method: "POST", body: JSON.stringify({ friendPublicId }) });
     setMsg(addFriendMsg, "Gata.");
     addFriendForm.reset();
     await refreshFriends();

@@ -245,53 +245,77 @@ async function main() {
 
   // ----- Socket.IO for presence + WebRTC signaling -----
   io.on("connection", (socket) => {
-    socket.on("auth", ({ publicId }) => {
-      const user = getOne("SELECT id, public_id FROM users WHERE public_id = ?", [Number(publicId)]);
-      if (!user) return;
-      userSockets.set(user.id, socket.id);
-      socket.data.userId = user.id;
-      socket.data.publicId = user.public_id;
-      socket.emit("presence:ready", { ok: true });
-    });
-
-    socket.on("call:offer", ({ toPublicId, offer }) => {
-      const fromUserId = socket.data.userId;
-      if (!fromUserId) return;
-      const toUser = getOne("SELECT id, public_id FROM users WHERE public_id = ?", [Number(toPublicId)]);
-      if (!toUser) return;
-
-      const isFriend = getOne("SELECT 1 AS ok FROM friendships WHERE user_id = ? AND friend_user_id = ?", [
-        fromUserId,
-        toUser.id,
-      ]);
-      if (!isFriend) return;
-
-      const toSocketId = userSockets.get(toUser.id);
-      if (!toSocketId) {
-        socket.emit("call:error", { error: "friend_offline" });
-        return;
+    socket.on("auth", async ({ publicId }) => {
+      try {
+        const pid = Number(publicId);
+        if (!Number.isInteger(pid)) return;
+        const user = await getOne("SELECT id, public_id AS publicId FROM users WHERE public_id = ?", [pid]);
+        if (!user) return;
+        userSockets.set(user.id, socket.id);
+        socket.data.userId = user.id;
+        socket.data.publicId = user.publicId ?? user.public_id;
+        socket.emit("presence:ready", { ok: true });
+      } catch {
+        // ignore
       }
-      io.to(toSocketId).emit("call:incoming", { fromPublicId: socket.data.publicId, offer });
     });
 
-    socket.on("call:answer", ({ toPublicId, answer }) => {
-      const fromUserId = socket.data.userId;
-      if (!fromUserId) return;
-      const toUser = getOne("SELECT id FROM users WHERE public_id = ?", [Number(toPublicId)]);
-      if (!toUser) return;
-      const toSocketId = userSockets.get(toUser.id);
-      if (!toSocketId) return;
-      io.to(toSocketId).emit("call:answer", { fromPublicId: socket.data.publicId, answer });
+    socket.on("call:offer", async ({ toPublicId, offer }) => {
+      try {
+        const fromUserId = socket.data.userId;
+        if (!fromUserId) return;
+        const toPid = Number(toPublicId);
+        if (!Number.isInteger(toPid)) return;
+        const toUser = await getOne("SELECT id, public_id AS publicId FROM users WHERE public_id = ?", [toPid]);
+        if (!toUser) return;
+
+        const isFriend = await getOne("SELECT 1 AS ok FROM friendships WHERE user_id = ? AND friend_user_id = ?", [
+          fromUserId,
+          toUser.id,
+        ]);
+        if (!isFriend) return;
+
+        const toSocketId = userSockets.get(toUser.id);
+        if (!toSocketId) {
+          socket.emit("call:error", { error: "friend_offline" });
+          return;
+        }
+        io.to(toSocketId).emit("call:incoming", { fromPublicId: socket.data.publicId, offer });
+      } catch {
+        socket.emit("call:error", { error: "server_error" });
+      }
     });
 
-    socket.on("call:ice", ({ toPublicId, candidate }) => {
-      const fromUserId = socket.data.userId;
-      if (!fromUserId) return;
-      const toUser = getOne("SELECT id FROM users WHERE public_id = ?", [Number(toPublicId)]);
-      if (!toUser) return;
-      const toSocketId = userSockets.get(toUser.id);
-      if (!toSocketId) return;
-      io.to(toSocketId).emit("call:ice", { fromPublicId: socket.data.publicId, candidate });
+    socket.on("call:answer", async ({ toPublicId, answer }) => {
+      try {
+        const fromUserId = socket.data.userId;
+        if (!fromUserId) return;
+        const toPid = Number(toPublicId);
+        if (!Number.isInteger(toPid)) return;
+        const toUser = await getOne("SELECT id FROM users WHERE public_id = ?", [toPid]);
+        if (!toUser) return;
+        const toSocketId = userSockets.get(toUser.id);
+        if (!toSocketId) return;
+        io.to(toSocketId).emit("call:answer", { fromPublicId: socket.data.publicId, answer });
+      } catch {
+        // ignore
+      }
+    });
+
+    socket.on("call:ice", async ({ toPublicId, candidate }) => {
+      try {
+        const fromUserId = socket.data.userId;
+        if (!fromUserId) return;
+        const toPid = Number(toPublicId);
+        if (!Number.isInteger(toPid)) return;
+        const toUser = await getOne("SELECT id FROM users WHERE public_id = ?", [toPid]);
+        if (!toUser) return;
+        const toSocketId = userSockets.get(toUser.id);
+        if (!toSocketId) return;
+        io.to(toSocketId).emit("call:ice", { fromPublicId: socket.data.publicId, candidate });
+      } catch {
+        // ignore
+      }
     });
 
     socket.on("disconnect", () => {
