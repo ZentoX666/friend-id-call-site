@@ -47,7 +47,9 @@ async function main() {
 
   app.get("/api/me", (req, res) => {
     if (!req.session.userId) return res.json({ authenticated: false });
-    const user = getOne("SELECT public_id AS publicId, email FROM users WHERE id = ?", [req.session.userId]);
+    const user = getOne("SELECT public_id AS publicId, email, display_name AS displayName, avatar_url AS avatarUrl FROM users WHERE id = ?", [
+      req.session.userId,
+    ]);
     if (!user) {
       req.session.destroy(() => {});
       return res.json({ authenticated: false });
@@ -59,8 +61,12 @@ async function main() {
     try {
       const email = normalizeEmail(req.body.email);
       const password = String(req.body.password || "");
+      const displayName = String(req.body.displayName || "").trim();
+      const avatarUrl = String(req.body.avatarUrl || "").trim();
       if (!email.includes("@") || email.length > 254) return res.status(400).json({ error: "invalid_email" });
       if (password.length < 6 || password.length > 200) return res.status(400).json({ error: "invalid_password" });
+      if (displayName && displayName.length > 40) return res.status(400).json({ error: "invalid_display_name" });
+      if (avatarUrl && avatarUrl.length > 500) return res.status(400).json({ error: "invalid_avatar_url" });
 
       const existing = getOne("SELECT id FROM users WHERE email = ?", [email]);
       if (existing) return res.status(409).json({ error: "email_in_use" });
@@ -68,7 +74,13 @@ async function main() {
       const publicId = generateUniquePublicId();
       const passwordHash = await bcrypt.hash(password, 12);
 
-      run("INSERT INTO users (public_id, email, password_hash) VALUES (?, ?, ?)", [publicId, email, passwordHash]);
+      run("INSERT INTO users (public_id, email, password_hash, display_name, avatar_url) VALUES (?, ?, ?, ?, ?)", [
+        publicId,
+        email,
+        passwordHash,
+        displayName || null,
+        avatarUrl || null,
+      ]);
       const created = getOne("SELECT id FROM users WHERE email = ?", [email]);
 
       req.session.userId = created.id;
@@ -104,7 +116,7 @@ async function main() {
   app.get("/api/friends", requireAuth, (req, res) => {
     const rows = getAll(
       `
-      SELECT u.public_id AS publicId, u.email AS email
+      SELECT u.public_id AS publicId, u.email AS email, u.display_name AS displayName, u.avatar_url AS avatarUrl
       FROM friendships f
       JOIN users u ON u.id = f.friend_user_id
       WHERE f.user_id = ?
@@ -153,7 +165,10 @@ async function main() {
     const me = getOne("SELECT id, public_id AS publicId FROM users WHERE id = ?", [req.session.userId]);
     if (!me) return res.status(401).json({ error: "not_authenticated" });
 
-    const friend = getOne("SELECT id, public_id AS publicId, email FROM users WHERE public_id = ?", [friendPublicId]);
+    const friend = getOne(
+      "SELECT id, public_id AS publicId, email, display_name AS displayName, avatar_url AS avatarUrl FROM users WHERE public_id = ?",
+      [friendPublicId]
+    );
     if (!friend) return res.status(404).json({ error: "user_not_found" });
 
     const isFriend = getOne("SELECT 1 AS ok FROM friendships WHERE user_id = ? AND friend_user_id = ?", [me.id, friend.id]);
@@ -180,7 +195,10 @@ async function main() {
       [me.id, friend.id, friend.id, me.id]
     ).reverse();
 
-    res.json({ friend: { publicId: friend.publicId, email: friend.email }, messages: rows });
+    res.json({
+      friend: { publicId: friend.publicId, email: friend.email, displayName: friend.displayName, avatarUrl: friend.avatarUrl },
+      messages: rows,
+    });
   });
 
   app.post("/api/messages/send", requireAuth, (req, res) => {

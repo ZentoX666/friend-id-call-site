@@ -13,6 +13,8 @@ const meEmail = el("meEmail");
 const meEmailPill = el("meEmailPill");
 const avatarText = el("avatarText");
 const avatarBtn = el("avatarBtn");
+const avatarImg = el("avatarImg");
+const meName = el("meName");
 
 const addFriendForm = el("addFriendForm");
 const addFriendMsg = el("addFriendMsg");
@@ -29,6 +31,10 @@ const remoteAudio = el("remoteAudio");
 const hangupBtn = el("hangupBtn");
 const acceptBtn = el("acceptBtn");
 const declineBtn = el("declineBtn");
+const micMuteBtn = el("micMuteBtn");
+const remoteMuteBtn = el("remoteMuteBtn");
+const remoteVolume = el("remoteVolume");
+const remoteVolumeLabel = el("remoteVolumeLabel");
 
 let socket = null;
 let me = null; // { publicId, email }
@@ -42,6 +48,11 @@ let reconnectTimer = null;
 let chatPeer = null; // { publicId, email }
 let audioCtx = null;
 let audioUnlocked = false;
+
+let remoteSource = null;
+let remoteGain = null;
+let remoteMuted = false;
+let micMuted = false;
 
 function setMsg(node, text, kind = "muted") {
   node.textContent = text || "";
@@ -139,8 +150,8 @@ function initTabs() {
   );
 }
 
-function computeAvatar(email) {
-  const base = (email || "?").split("@")[0].trim();
+function computeAvatar(email, displayName) {
+  const base = (displayName || "").trim() || (email || "?").split("@")[0].trim();
   const letters = base
     .split(/[._-]+/)
     .filter(Boolean)
@@ -227,6 +238,47 @@ async function openChatWith(friend) {
   }
 }
 
+function ensureRemoteAudioGraph() {
+  unlockAudio();
+  if (!audioCtx) return;
+  if (remoteSource && remoteGain) return;
+  try {
+    remoteSource = audioCtx.createMediaElementSource(remoteAudio);
+    remoteGain = audioCtx.createGain();
+    remoteGain.gain.value = 1.0;
+    remoteSource.connect(remoteGain).connect(audioCtx.destination);
+  } catch {
+    // Some browsers can throw if called twice; ignore.
+  }
+}
+
+function setRemoteVolumePercent(pct) {
+  const v = Math.max(0, Math.min(200, Number(pct)));
+  if (remoteVolumeLabel) remoteVolumeLabel.textContent = `${Math.round(v)}%`;
+  if (remoteVolume) remoteVolume.value = String(Math.round(v));
+
+  ensureRemoteAudioGraph();
+  if (!remoteGain) return;
+  if (remoteMuted) {
+    remoteGain.gain.value = 0;
+    return;
+  }
+  remoteGain.gain.value = v / 100;
+}
+
+function setRemoteMuted(on) {
+  remoteMuted = !!on;
+  if (remoteMuteBtn) remoteMuteBtn.textContent = remoteMuted ? "Unmute audio" : "Mute audio";
+  setRemoteVolumePercent(remoteVolume?.value ?? 100);
+}
+
+function setMicMuted(on) {
+  micMuted = !!on;
+  if (micMuteBtn) micMuteBtn.textContent = micMuted ? "Unmute microfon" : "Mute microfon";
+  const track = localStream?.getAudioTracks?.()[0];
+  if (track) track.enabled = !micMuted;
+}
+
 async function refreshMe() {
   const data = await api("/api/me");
   if (!data.authenticated) {
@@ -235,9 +287,21 @@ async function refreshMe() {
     return;
   }
   me = data.user;
+  if (meName) meName.textContent = me.displayName || computeAvatar(me.email, me.displayName);
   meEmail.textContent = me.email;
   if (meEmailPill) meEmailPill.textContent = me.email;
-  avatarText.textContent = computeAvatar(me.email);
+  const initials = computeAvatar(me.email, me.displayName);
+  avatarText.textContent = initials;
+  if (avatarImg) {
+    if (me.avatarUrl) {
+      avatarImg.src = me.avatarUrl;
+      avatarImg.classList.remove("hidden");
+      avatarText.classList.add("hidden");
+    } else {
+      avatarImg.classList.add("hidden");
+      avatarText.classList.remove("hidden");
+    }
+  }
   setCallState("idle");
   setIncomingUI(false);
   setInCallUI(false);
@@ -391,6 +455,9 @@ function makePeerConnection(toPublicId) {
   pc.ontrack = (evt) => {
     const [stream] = evt.streams;
     remoteAudio.srcObject = stream;
+    // Ensure volume > 100% works via WebAudio
+    ensureRemoteAudioGraph();
+    setRemoteVolumePercent(remoteVolume?.value ?? 100);
   };
 
   pc.onconnectionstatechange = () => {
@@ -445,6 +512,7 @@ async function getLocalAudio() {
     },
     video: false,
   });
+  setMicMuted(micMuted);
   return localStream;
 }
 
@@ -523,6 +591,7 @@ function cleanupCall() {
   }
   pc = null;
   remoteAudio.srcObject = null;
+  // keep remote gain graph; it's connected to the element
   if (callStatus.textContent !== "idle") setCallState("idle");
 }
 
@@ -567,10 +636,15 @@ signupForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   setMsg(signupMsg, "Creează cont...");
   const form = new FormData(signupForm);
+  const displayName = form.get("displayName");
+  const avatarUrl = form.get("avatarUrl");
   const email = form.get("email");
   const password = form.get("password");
   try {
-    const data = await api("/api/signup", { method: "POST", body: JSON.stringify({ email, password }) });
+    const data = await api("/api/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password, displayName, avatarUrl }),
+    });
     setMsg(signupMsg, `Cont creat. ID-ul tău: ${data.publicId}`);
     await refreshMe();
   } catch (err) {
@@ -644,6 +718,26 @@ hangupBtn.addEventListener("click", () => {
 });
 acceptBtn.addEventListener("click", () => acceptIncoming());
 declineBtn.addEventListener("click", () => declineIncoming());
+
+micMuteBtn?.addEventListener("click", () => {
+  unlockAudio();
+  setMicMuted(!micMuted);
+});
+
+remoteMuteBtn?.addEventListener("click", () => {
+  unlockAudio();
+  setRemoteMuted(!remoteMuted);
+});
+
+remoteVolume?.addEventListener("input", () => {
+  unlockAudio();
+  setRemoteVolumePercent(remoteVolume.value);
+});
+
+// Initialize UI defaults
+setRemoteVolumePercent(100);
+setRemoteMuted(false);
+setMicMuted(false);
 
 // On load
 refreshMe().catch(() => show("auth"));

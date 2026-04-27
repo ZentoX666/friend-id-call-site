@@ -28,6 +28,8 @@ async function initDb() {
       public_id INTEGER NOT NULL UNIQUE,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      display_name TEXT,
+      avatar_url TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -46,6 +48,12 @@ async function initDb() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Lightweight migrations for existing DB files
+  const userCols = getAll("PRAGMA table_info(users)");
+  const colNames = new Set(userCols.map((c) => c.name));
+  if (!colNames.has("display_name")) db.run("ALTER TABLE users ADD COLUMN display_name TEXT");
+  if (!colNames.has("avatar_url")) db.run("ALTER TABLE users ADD COLUMN avatar_url TEXT");
 
   persist();
   return db;

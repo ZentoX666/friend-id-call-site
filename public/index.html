@@ -34,6 +34,10 @@
         <div id="signupTab" class="tab-panel hidden">
           <h2>Sign up</h2>
           <form id="signupForm" class="form">
+            <label>Nume (opțional)</label>
+            <input name="displayName" type="text" autocomplete="nickname" maxlength="40" placeholder="ex: Andrei" />
+            <label>Avatar URL (opțional)</label>
+            <input name="avatarUrl" type="url" autocomplete="url" maxlength="500" placeholder="https://..." />
             <label>Email</label>
             <input name="email" type="email" autocomplete="email" required />
             <label>Parolă (minim 6)</label>
@@ -48,11 +52,13 @@
         <div class="card profile">
           <div class="profile-left">
             <button id="avatarBtn" class="avatar" title="Apasă ca să vezi ID-ul">
+                <img id="avatarImg" class="avatar-img hidden" alt="avatar" />
               <span id="avatarText">?</span>
             </button>
             <div>
               <div class="muted">Cont</div>
-              <div id="meEmail" class="mono"></div>
+                <div id="meName" class="profile-name"></div>
+                <div id="meEmail" class="mono muted"></div>
             </div>
           </div>
           <div class="profile-right">
@@ -89,6 +95,15 @@
             <button id="hangupBtn" class="btn btn-danger hidden">Închide</button>
             <button id="acceptBtn" class="btn hidden">Acceptă</button>
             <button id="declineBtn" class="btn btn-ghost hidden">Respinge</button>
+          </div>
+          <div class="call-controls">
+            <button id="micMuteBtn" class="btn btn-ghost" type="button">Mute microfon</button>
+            <button id="remoteMuteBtn" class="btn btn-ghost" type="button">Mute audio</button>
+            <div class="volume">
+              <label for="remoteVolume" class="muted">Volum</label>
+              <input id="remoteVolume" type="range" min="0" max="200" step="1" value="100" />
+              <div id="remoteVolumeLabel" class="mono muted">100%</div>
+            </div>
           </div>
           <audio id="remoteAudio" autoplay></audio>
         </div>
