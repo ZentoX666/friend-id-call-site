@@ -60,6 +60,9 @@ let localGain = null;
 let localRawTrack = null;
 let localProcessedTrack = null;
 
+let ringIn = null;
+let ringBack = null;
+
 function setMsg(node, text, kind = "muted") {
   node.textContent = text || "";
   node.style.color = kind === "error" ? "rgba(255,90,122,.95)" : "var(--muted)";
@@ -246,6 +249,49 @@ async function openChatWith(friend) {
   }
 }
 
+function ensureRingers() {
+  if (!ringIn) {
+    ringIn = new Audio("/sounds/sound1.mp3");
+    ringIn.loop = true;
+    ringIn.preload = "auto";
+  }
+  if (!ringBack) {
+    ringBack = new Audio("/sounds/sound2.mp3");
+    ringBack.loop = true;
+    ringBack.preload = "auto";
+  }
+}
+
+function stopAllRings() {
+  for (const a of [ringIn, ringBack]) {
+    if (!a) continue;
+    try {
+      a.pause();
+      a.currentTime = 0;
+    } catch {}
+  }
+}
+
+async function startRingIn() {
+  unlockAudio();
+  ensureRingers();
+  stopAllRings();
+  try {
+    await ringIn.play();
+  } catch {
+    // Autoplay can be blocked; user gesture will unlock
+  }
+}
+
+async function startRingBack() {
+  unlockAudio();
+  ensureRingers();
+  stopAllRings();
+  try {
+    await ringBack.play();
+  } catch {}
+}
+
 function ensureRemoteAudioGraph(stream) {
   unlockAudio();
   if (!audioCtx) return;
@@ -355,11 +401,13 @@ async function refreshMe() {
       isCaller = false;
       setCallState(`incoming from ${fromPublicId}`);
       setIncomingUI(true);
+      startRingIn();
     });
 
     socket.on("call:answer", async ({ fromPublicId, answer }) => {
       if (!pc || currentPeerPublicId !== fromPublicId) return;
       await pc.setRemoteDescription(answer);
+      stopAllRings();
       setCallState("in_call");
       setInCallUI(true);
     });
@@ -375,6 +423,7 @@ async function refreshMe() {
 
     socket.on("call:error", ({ error }) => {
       setCallState(`error: ${error}`);
+      stopAllRings();
       cleanupCall();
     });
 
@@ -562,6 +611,7 @@ async function startCall(toPublicId) {
     setCallState(`calling ${toPublicId}...`);
     makePeerConnection(toPublicId);
     isCaller = true;
+    startRingBack();
 
     const stream = await getLocalAudio();
     // Send processed mic track if available (supports 0–200% outgoing volume)
@@ -577,6 +627,7 @@ async function startCall(toPublicId) {
     setInCallUI(true);
   } catch (e) {
     setCallState("call_failed");
+    stopAllRings();
     cleanupCall();
   }
 }
@@ -586,6 +637,7 @@ async function acceptIncoming() {
   const { fromPublicId, offer } = pendingIncoming;
   pendingIncoming = null;
   setIncomingUI(false);
+  stopAllRings();
 
   try {
     setCallState("accepting...");
@@ -607,6 +659,7 @@ async function acceptIncoming() {
     setCallState("in_call");
   } catch {
     setCallState("accept_failed");
+    stopAllRings();
     cleanupCall();
   }
 }
@@ -614,10 +667,12 @@ async function acceptIncoming() {
 function declineIncoming() {
   pendingIncoming = null;
   setIncomingUI(false);
+  stopAllRings();
   setCallState("idle");
 }
 
 function cleanupCall() {
+  stopAllRings();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;

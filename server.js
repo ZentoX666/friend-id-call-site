@@ -36,6 +36,18 @@ async function main() {
     res.status(200).send("ok");
   });
 
+  // Optional custom sounds (user-provided files in project root)
+  app.get("/sounds/sound1.mp3", (req, res) => {
+    res.sendFile(path.join(__dirname, "Sound 1.MP3"), (err) => {
+      if (err) res.status(404).end();
+    });
+  });
+  app.get("/sounds/sound2.mp3", (req, res) => {
+    res.sendFile(path.join(__dirname, "Sound 2.MP3"), (err) => {
+      if (err) res.status(404).end();
+    });
+  });
+
   function requireAuth(req, res, next) {
     if (!req.session.userId) return res.status(401).json({ error: "not_authenticated" });
     next();
