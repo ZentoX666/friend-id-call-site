@@ -24,6 +24,10 @@ const createGroupForm = el("createGroupForm");
 const joinGroupForm = el("joinGroupForm");
 const groupMsg = el("groupMsg");
 const groupsList = el("groupsList");
+const serverIcons = el("serverIcons");
+const openServerModalBtn = el("openServerModalBtn");
+const closeServerModalBtn = el("closeServerModalBtn");
+const serverModal = el("serverModal");
 
 const chatWith = el("chatWith");
 const chatMessages = el("chatMessages");
@@ -66,6 +70,7 @@ const settingsMsg = el("settingsMsg");
 const settingsDisplayName = el("settingsDisplayName");
 const settingsAvatarUrl = el("settingsAvatarUrl");
 const meIdPill = el("meIdPill");
+const mePublicId = el("mePublicId");
 
 let socket = null;
 let me = null; // { publicId, email }
@@ -471,6 +476,7 @@ async function refreshMe() {
   }
   me = data.user;
   if (meIdPill) meIdPill.textContent = String(me.publicId || "");
+  if (mePublicId) mePublicId.textContent = `ID: ${String(me.publicId || "-")}`;
   if (meName) meName.textContent = me.displayName || computeAvatar(me.email, me.displayName);
   meEmail.textContent = me.email;
   if (meEmailPill) meEmailPill.textContent = me.email;
@@ -673,6 +679,7 @@ async function refreshGroups() {
   if (!groupsList) return;
   const data = await api("/api/groups");
   groupsList.innerHTML = "";
+  if (serverIcons) serverIcons.innerHTML = "";
   if (!data.groups?.length) {
     const empty = document.createElement("div");
     empty.className = "muted";
@@ -692,6 +699,21 @@ async function refreshGroups() {
     item.appendChild(name);
     item.appendChild(code);
     groupsList.appendChild(item);
+
+    if (serverIcons) {
+      const icon = document.createElement("button");
+      icon.type = "button";
+      icon.className = "server-icon";
+      icon.title = `${g.name} (${g.groupCode})`;
+      icon.textContent = (g.name || "S").slice(0, 1).toUpperCase();
+      icon.addEventListener("click", () => {
+        setMainTab("chat");
+        if (mainTitle) mainTitle.textContent = `${g.name} • ${g.groupCode}`;
+        document.querySelectorAll(".server-icon.active").forEach((n) => n.classList.remove("active"));
+        icon.classList.add("active");
+      });
+      serverIcons.appendChild(icon);
+    }
   }
 }
 
@@ -1008,6 +1030,7 @@ createGroupForm?.addEventListener("submit", async (e) => {
     const data = await api("/api/groups/create", { method: "POST", body: JSON.stringify({ name }) });
     setMsg(groupMsg, `Created. Group ID: ${data.group.groupCode}`);
     createGroupForm.reset();
+    serverModal?.classList.add("hidden");
     await refreshGroups();
   } catch (err) {
     const code = err?.data?.error || "error";
@@ -1028,6 +1051,7 @@ joinGroupForm?.addEventListener("submit", async (e) => {
     await api("/api/groups/join", { method: "POST", body: JSON.stringify({ groupCode }) });
     setMsg(groupMsg, "Joined.");
     joinGroupForm.reset();
+    serverModal?.classList.add("hidden");
     await refreshGroups();
   } catch (err) {
     const code = err?.data?.error || "error";
@@ -1108,6 +1132,11 @@ mainCallTab?.addEventListener("click", () => setMainTab("call"));
 mainSettingsTab?.addEventListener("click", () => setMainTab("settings"));
 openSettingsBtn?.addEventListener("click", () => setMainTab("settings"));
 enableNotificationsBtn?.addEventListener("click", () => requestNotificationsPermission());
+openServerModalBtn?.addEventListener("click", () => serverModal?.classList.remove("hidden"));
+closeServerModalBtn?.addEventListener("click", () => serverModal?.classList.add("hidden"));
+serverModal?.addEventListener("click", (e) => {
+  if (e.target === serverModal) serverModal.classList.add("hidden");
+});
 
 settingsForm?.addEventListener("submit", async (e) => {
   e.preventDefault();

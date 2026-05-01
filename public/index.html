@@ -52,7 +52,31 @@
       </div>
 
       <div id="appView" class="hidden">
-        <div class="app-shell">
+        <div class="app-frame">
+          <aside class="server-rail">
+            <button id="openServerModalBtn" class="server-plus" type="button" title="Add server">+</button>
+            <div id="serverIcons" class="server-icons"></div>
+          </aside>
+
+          <div id="serverModal" class="modal hidden">
+            <div class="modal-card">
+              <h3>Add server</h3>
+              <form id="createGroupForm" class="form">
+                <label>Create server</label>
+                <input name="groupName" autocomplete="off" placeholder="Server name" required />
+                <button class="btn" type="submit">Create</button>
+              </form>
+              <form id="joinGroupForm" class="form">
+                <label>Join server by ID</label>
+                <input name="groupCode" inputmode="numeric" autocomplete="off" placeholder="ID 10-15 digits" required />
+                <button class="btn btn-ghost" type="submit">Join</button>
+              </form>
+              <div class="hint" id="groupMsg"></div>
+              <button id="closeServerModalBtn" class="btn btn-ghost" type="button">Close</button>
+            </div>
+          </div>
+
+          <div class="app-shell">
           <aside class="sidebar">
             <div class="me-card">
               <button id="avatarBtn" class="avatar" title="Profil">
@@ -61,6 +85,7 @@
               </button>
               <div class="me-meta">
                 <div id="meName" class="profile-name"></div>
+                <div id="mePublicId" class="mono muted"></div>
                 <div id="meEmail" class="mono muted hidden"></div>
               </div>
               <button id="openSettingsBtn" class="btn btn-ghost btn-icon" type="button" title="Setări">⚙</button>
@@ -81,16 +106,7 @@
             </div>
 
             <div class="sidebar-section">
-              <div class="sidebar-title muted">Grupuri</div>
-              <form id="createGroupForm" class="form-inline">
-                <input name="groupName" autocomplete="off" placeholder="Create group name" required />
-                <button class="btn" type="submit">Create</button>
-              </form>
-              <form id="joinGroupForm" class="form-inline">
-                <input name="groupCode" inputmode="numeric" autocomplete="off" placeholder="Join ID 10-15" required />
-                <button class="btn btn-ghost" type="submit">Join</button>
-              </form>
-              <div class="hint" id="groupMsg"></div>
+              <div class="sidebar-title muted">Servers</div>
               <div id="groupsList" class="groups"></div>
             </div>
           </aside>
@@ -190,6 +206,7 @@
               </div>
             </section>
           </main>
+        </div>
         </div>
       </div>
     </div>
