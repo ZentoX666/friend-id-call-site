@@ -184,7 +184,13 @@ async function main() {
   app.get("/api/groups", requireAuth, async (req, res) => {
     const groups = await getAll(
       `
-      SELECT g.group_code AS groupCode, g.name AS name, g.created_at AS createdAt
+      SELECT
+        g.id AS groupId,
+        g.group_code AS groupCode,
+        g.name AS name,
+        g.avatar_url AS avatarUrl,
+        g.created_by_user_id AS ownerUserId,
+        g.created_at AS createdAt
       FROM group_members gm
       JOIN groups g ON g.id = gm.group_id
       WHERE gm.user_id = ?
@@ -192,7 +198,16 @@ async function main() {
     `,
       [req.session.userId]
     );
-    res.json({ groups });
+    res.json({
+      groups: groups.map((g) => ({
+        groupId: g.groupId,
+        groupCode: g.groupCode,
+        name: g.name,
+        avatarUrl: g.avatarUrl || null,
+        isOwner: Number(g.ownerUserId) === Number(req.session.userId),
+        createdAt: g.createdAt,
+      })),
+    });
   });
 
   app.post("/api/groups/create", requireAuth, async (req, res) => {
@@ -201,14 +216,15 @@ async function main() {
       if (!name || name.length > 80) return res.status(400).json({ error: "invalid_group_name" });
 
       const groupCode = await generateUniqueGroupCode();
-      await run("INSERT INTO groups (group_code, name, created_by_user_id) VALUES (?, ?, ?)", [
+      await run("INSERT INTO groups (group_code, name, created_by_user_id, avatar_url) VALUES (?, ?, ?, ?)", [
         groupCode,
         name,
         req.session.userId,
+        null,
       ]);
-      const group = await getOne("SELECT id, group_code AS groupCode, name FROM groups WHERE group_code = ?", [groupCode]);
+      const group = await getOne("SELECT id, group_code AS groupCode, name, avatar_url AS avatarUrl FROM groups WHERE group_code = ?", [groupCode]);
       await run("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)", [group.id, req.session.userId]);
-      res.json({ ok: true, group: { groupCode: group.groupCode, name: group.name } });
+      res.json({ ok: true, group: { groupCode: group.groupCode, name: group.name, avatarUrl: group.avatarUrl || null } });
     } catch {
       res.status(500).json({ error: "server_error" });
     }
@@ -227,6 +243,119 @@ async function main() {
     } catch {
       res.status(500).json({ error: "server_error" });
     }
+  });
+
+  async function getGroupForMember(userId, groupCode) {
+    return getOne(
+      `
+      SELECT g.id AS groupId, g.group_code AS groupCode, g.name AS name, g.avatar_url AS avatarUrl, g.created_by_user_id AS ownerUserId
+      FROM groups g
+      JOIN group_members gm ON gm.group_id = g.id
+      WHERE gm.user_id = ? AND g.group_code = ?
+    `,
+      [userId, groupCode]
+    );
+  }
+
+  app.get("/api/groups/:groupCode/messages", requireAuth, async (req, res) => {
+    const groupCode = String(req.params.groupCode || "").trim();
+    if (!/^\d{10,15}$/.test(groupCode)) return res.status(400).json({ error: "invalid_group_code" });
+
+    const group = await getGroupForMember(req.session.userId, groupCode);
+    if (!group) return res.status(403).json({ error: "not_in_group" });
+
+    const messages = await getAll(
+      `
+      SELECT
+        gm.id AS id,
+        gm.body AS body,
+        gm.created_at AS createdAt,
+        fu.public_id AS fromPublicId,
+        fu.display_name AS fromDisplayName,
+        fu.avatar_url AS fromAvatarUrl
+      FROM group_messages gm
+      JOIN users fu ON fu.id = gm.from_user_id
+      WHERE gm.group_id = ?
+      ORDER BY gm.id DESC
+      LIMIT 200
+    `,
+      [group.groupId]
+    );
+
+    res.json({
+      group: {
+        groupCode: group.groupCode,
+        name: group.name,
+        avatarUrl: group.avatarUrl || null,
+        isOwner: Number(group.ownerUserId) === Number(req.session.userId),
+      },
+      messages: messages.reverse(),
+    });
+  });
+
+  app.post("/api/groups/:groupCode/messages/send", requireAuth, async (req, res) => {
+    const groupCode = String(req.params.groupCode || "").trim();
+    const body = String(req.body.body || "").trim();
+    if (!/^\d{10,15}$/.test(groupCode)) return res.status(400).json({ error: "invalid_group_code" });
+    if (!body || body.length > 2000) return res.status(400).json({ error: "invalid_message" });
+
+    const group = await getGroupForMember(req.session.userId, groupCode);
+    if (!group) return res.status(403).json({ error: "not_in_group" });
+
+    await run("INSERT INTO group_messages (group_id, from_user_id, body) VALUES (?, ?, ?)", [group.groupId, req.session.userId, body]);
+    const msg = await getOne(
+      `
+      SELECT
+        gm.id AS id,
+        gm.body AS body,
+        gm.created_at AS createdAt,
+        fu.public_id AS fromPublicId,
+        fu.display_name AS fromDisplayName,
+        fu.avatar_url AS fromAvatarUrl
+      FROM group_messages gm
+      JOIN users fu ON fu.id = gm.from_user_id
+      WHERE gm.group_id = ? AND gm.from_user_id = ?
+      ORDER BY gm.id DESC
+      LIMIT 1
+    `,
+      [group.groupId, req.session.userId]
+    );
+
+    io.to(`group:${group.groupId}`).emit("group:message", { groupCode: group.groupCode, message: msg });
+    res.json({ ok: true, message: msg });
+  });
+
+  app.post("/api/groups/:groupCode/settings", requireAuth, async (req, res) => {
+    const groupCode = String(req.params.groupCode || "").trim();
+    const name = String(req.body.name || "").trim();
+    const avatarUrl = String(req.body.avatarUrl || "").trim();
+    if (!/^\d{10,15}$/.test(groupCode)) return res.status(400).json({ error: "invalid_group_code" });
+    if (!name || name.length > 80) return res.status(400).json({ error: "invalid_group_name" });
+    if (avatarUrl && avatarUrl.length > 500) return res.status(400).json({ error: "invalid_avatar_url" });
+
+    const group = await getOne("SELECT id AS groupId, created_by_user_id AS ownerUserId FROM groups WHERE group_code = ?", [groupCode]);
+    if (!group) return res.status(404).json({ error: "group_not_found" });
+    if (Number(group.ownerUserId) !== Number(req.session.userId)) return res.status(403).json({ error: "not_group_owner" });
+
+    await run("UPDATE groups SET name = ?, avatar_url = ? WHERE id = ?", [name, avatarUrl || null, group.groupId]);
+    const updated = await getOne("SELECT group_code AS groupCode, name, avatar_url AS avatarUrl FROM groups WHERE id = ?", [group.groupId]);
+    res.json({ ok: true, group: updated });
+  });
+
+  app.post("/api/groups/:groupCode/reset-id", requireAuth, async (req, res) => {
+    const groupCode = String(req.params.groupCode || "").trim();
+    if (!/^\d{10,15}$/.test(groupCode)) return res.status(400).json({ error: "invalid_group_code" });
+
+    const group = await getOne("SELECT id AS groupId, created_by_user_id AS ownerUserId FROM groups WHERE group_code = ?", [groupCode]);
+    if (!group) return res.status(404).json({ error: "group_not_found" });
+    if (Number(group.ownerUserId) !== Number(req.session.userId)) return res.status(403).json({ error: "not_group_owner" });
+
+    const newCode = await generateUniqueGroupCode();
+    await run("UPDATE groups SET group_code = ? WHERE id = ?", [newCode, group.groupId]);
+    await run("DELETE FROM group_members WHERE group_id = ? AND user_id <> ?", [group.groupId, req.session.userId]);
+
+    io.to(`group:${group.groupId}`).emit("group:code_reset", { oldGroupCode: groupCode, newGroupCode: newCode });
+    res.json({ ok: true, groupCode: newCode });
   });
 
   // Map userId -> socket.id (single active socket)
@@ -325,6 +454,16 @@ async function main() {
         userSockets.set(user.id, socket.id);
         socket.data.userId = user.id;
         socket.data.publicId = user.publicId ?? user.public_id;
+        const groups = await getAll(
+          `
+          SELECT g.id AS groupId
+          FROM group_members gm
+          JOIN groups g ON g.id = gm.group_id
+          WHERE gm.user_id = ?
+        `,
+          [user.id]
+        );
+        for (const g of groups) socket.join(`group:${g.groupId}`);
         socket.emit("presence:ready", { ok: true });
       } catch {
         // ignore
@@ -384,6 +523,30 @@ async function main() {
         const toSocketId = userSockets.get(toUser.id);
         if (!toSocketId) return;
         io.to(toSocketId).emit("call:ice", { fromPublicId: socket.data.publicId, candidate });
+      } catch {
+        // ignore
+      }
+    });
+
+    socket.on("group:call", async ({ groupCode }) => {
+      try {
+        const code = String(groupCode || "").trim();
+        if (!/^\d{10,15}$/.test(code)) return;
+        const group = await getOne(
+          `
+          SELECT g.id AS groupId, g.name AS name
+          FROM groups g
+          JOIN group_members gm ON gm.group_id = g.id
+          WHERE g.group_code = ? AND gm.user_id = ?
+        `,
+          [code, socket.data.userId]
+        );
+        if (!group) return;
+        io.to(`group:${group.groupId}`).emit("group:incoming_call", {
+          groupCode: code,
+          groupName: group.name,
+          fromPublicId: socket.data.publicId,
+        });
       } catch {
         // ignore
       }

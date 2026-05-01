@@ -71,6 +71,15 @@ const settingsDisplayName = el("settingsDisplayName");
 const settingsAvatarUrl = el("settingsAvatarUrl");
 const meIdPill = el("meIdPill");
 const mePublicId = el("mePublicId");
+const serverCallBtn = el("serverCallBtn");
+const serverSettingsModal = el("serverSettingsModal");
+const serverSettingsForm = el("serverSettingsForm");
+const serverSettingsId = el("serverSettingsId");
+const serverSettingsName = el("serverSettingsName");
+const serverSettingsAvatarUrl = el("serverSettingsAvatarUrl");
+const serverSettingsMsg = el("serverSettingsMsg");
+const closeServerSettingsBtn = el("closeServerSettingsBtn");
+const resetServerIdBtn = el("resetServerIdBtn");
 
 let socket = null;
 let me = null; // { publicId, email }
@@ -100,6 +109,8 @@ let ringBack = null;
 let callStartedAt = null;
 let callTimer = null;
 let outgoingNoAnswerTimer = null;
+let currentServer = null; // { groupCode, name, avatarUrl, isOwner }
+let serverContextMenu = null;
 
 function notificationsSupported() {
   return typeof window !== "undefined" && "Notification" in window;
@@ -340,7 +351,7 @@ function renderChatMessages(messages) {
     b.className = "chat-bubble" + (m.fromPublicId === me?.publicId ? " me" : "");
     const meta = document.createElement("div");
     meta.className = "meta mono";
-    meta.textContent = `${m.fromPublicId} • ${m.createdAt}`;
+    meta.textContent = `${m.fromDisplayName || m.fromPublicId} • ${m.createdAt}`;
     const body = document.createElement("div");
     body.textContent = m.body;
     b.appendChild(meta);
@@ -351,6 +362,8 @@ function renderChatMessages(messages) {
 }
 
 async function openChatWith(friend) {
+  currentServer = null;
+  if (serverCallBtn) serverCallBtn.classList.add("hidden");
   chatPeer = friend;
   if (chatWith) chatWith.textContent = friend ? `${friend.displayName || `User ${friend.publicId}`}` : "-";
   if (mainTitle) mainTitle.textContent = friend ? (friend.displayName || `User ${friend.publicId}`) : "Selectează un prieten";
@@ -372,6 +385,62 @@ async function openChatWith(friend) {
     const readable = code === "not_friends" ? "Nu mai sunteți prieteni." : "Nu am putut încărca chat-ul.";
     setMsg(chatMsg, readable, "error");
   }
+}
+
+function closeServerContextMenu() {
+  if (!serverContextMenu) return;
+  serverContextMenu.remove();
+  serverContextMenu = null;
+}
+
+function openServerContextMenu(evt, group) {
+  closeServerContextMenu();
+  const menu = document.createElement("div");
+  menu.className = "server-menu";
+  menu.style.left = `${evt.clientX}px`;
+  menu.style.top = `${evt.clientY}px`;
+  const settingsBtn = document.createElement("button");
+  settingsBtn.type = "button";
+  settingsBtn.textContent = "Server settings";
+  settingsBtn.addEventListener("click", () => {
+    closeServerContextMenu();
+    openServerSettings(group);
+  });
+  menu.appendChild(settingsBtn);
+  document.body.appendChild(menu);
+  serverContextMenu = menu;
+}
+
+async function openServerChat(group) {
+  currentServer = group;
+  chatPeer = null;
+  if (serverCallBtn) serverCallBtn.classList.remove("hidden");
+  if (mainTitle) mainTitle.textContent = `${group.name} • ${group.groupCode}`;
+  if (chatWith) chatWith.textContent = `# ${group.name}`;
+  if (chatWrap && chatEmpty) {
+    chatWrap.classList.remove("hidden");
+    chatEmpty.classList.add("hidden");
+  }
+  setMainTab("chat");
+  try {
+    setMsg(chatMsg, "Se încarcă server chat...");
+    const data = await api(`/api/groups/${group.groupCode}/messages`);
+    renderChatMessages(data.messages || []);
+    setMsg(chatMsg, "");
+  } catch (err) {
+    setMsg(chatMsg, err?.data?.error || "error", "error");
+  }
+}
+
+function openServerSettings(group) {
+  if (!group) return;
+  currentServer = group;
+  if (serverSettingsId) serverSettingsId.textContent = group.groupCode || "-";
+  if (serverSettingsName) serverSettingsName.value = group.name || "";
+  if (serverSettingsAvatarUrl) serverSettingsAvatarUrl.value = group.avatarUrl || "";
+  if (resetServerIdBtn) resetServerIdBtn.classList.toggle("hidden", !group.isOwner);
+  if (serverSettingsMsg) serverSettingsMsg.textContent = "";
+  serverSettingsModal?.classList.remove("hidden");
 }
 
 function ensureRingers() {
@@ -602,6 +671,38 @@ async function refreshMe() {
         showNotification("New message", `From ${msg.fromPublicId}: ${String(msg.body || "").slice(0, 80)}`);
       }
     });
+
+    socket.on("group:message", ({ groupCode, message }) => {
+      if (currentServer && currentServer.groupCode === groupCode) {
+        const b = document.createElement("div");
+        b.className = "chat-bubble" + (message.fromPublicId === me?.publicId ? " me" : "");
+        const meta = document.createElement("div");
+        meta.className = "meta mono";
+        meta.textContent = `${message.fromDisplayName || message.fromPublicId} • ${message.createdAt}`;
+        const body = document.createElement("div");
+        body.textContent = message.body;
+        b.appendChild(meta);
+        b.appendChild(body);
+        chatMessages?.appendChild(b);
+        if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+      } else if (document.hidden && message.fromPublicId !== me?.publicId) {
+        showNotification("Server message", `${message.fromDisplayName || message.fromPublicId}: ${String(message.body || "").slice(0, 80)}`);
+      }
+    });
+
+    socket.on("group:incoming_call", ({ groupCode, groupName, fromPublicId }) => {
+      if (document.hidden) showNotification("Server call", `${fromPublicId} started a call in ${groupName}`);
+      setMsg(callMsg, `Server call in ${groupName} by ${fromPublicId}`, "muted");
+      if (currentServer && currentServer.groupCode === groupCode) setMainTab("call");
+    });
+
+    socket.on("group:code_reset", ({ oldGroupCode, newGroupCode }) => {
+      if (currentServer && currentServer.groupCode === oldGroupCode) {
+        currentServer.groupCode = newGroupCode;
+        if (mainTitle) mainTitle.textContent = `${currentServer.name} • ${newGroupCode}`;
+      }
+      refreshGroups().catch(() => {});
+    });
   }
 
   await refreshFriends();
@@ -676,29 +777,33 @@ async function refreshFriends() {
 }
 
 async function refreshGroups() {
-  if (!groupsList) return;
+  if (!serverIcons && !groupsList) return;
   const data = await api("/api/groups");
-  groupsList.innerHTML = "";
+  if (groupsList) groupsList.innerHTML = "";
   if (serverIcons) serverIcons.innerHTML = "";
   if (!data.groups?.length) {
-    const empty = document.createElement("div");
-    empty.className = "muted";
-    empty.textContent = "Nu ești în niciun grup.";
-    groupsList.appendChild(empty);
+    if (groupsList) {
+      const empty = document.createElement("div");
+      empty.className = "muted";
+      empty.textContent = "Nu ești în niciun grup.";
+      groupsList.appendChild(empty);
+    }
     return;
   }
   for (const g of data.groups) {
-    const item = document.createElement("div");
-    item.className = "group-item";
-    const name = document.createElement("div");
-    name.className = "group-name";
-    name.textContent = g.name || "Group";
-    const code = document.createElement("div");
-    code.className = "mono muted";
-    code.textContent = `ID: ${g.groupCode}`;
-    item.appendChild(name);
-    item.appendChild(code);
-    groupsList.appendChild(item);
+    if (groupsList) {
+      const item = document.createElement("div");
+      item.className = "group-item";
+      const name = document.createElement("div");
+      name.className = "group-name";
+      name.textContent = g.name || "Group";
+      const code = document.createElement("div");
+      code.className = "mono muted";
+      code.textContent = `ID: ${g.groupCode}`;
+      item.appendChild(name);
+      item.appendChild(code);
+      groupsList.appendChild(item);
+    }
 
     if (serverIcons) {
       const icon = document.createElement("button");
@@ -707,10 +812,13 @@ async function refreshGroups() {
       icon.title = `${g.name} (${g.groupCode})`;
       icon.textContent = (g.name || "S").slice(0, 1).toUpperCase();
       icon.addEventListener("click", () => {
-        setMainTab("chat");
-        if (mainTitle) mainTitle.textContent = `${g.name} • ${g.groupCode}`;
+        openServerChat(g);
         document.querySelectorAll(".server-icon.active").forEach((n) => n.classList.remove("active"));
         icon.classList.add("active");
+      });
+      icon.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        openServerContextMenu(evt, g);
       });
       serverIcons.appendChild(icon);
     }
@@ -1061,8 +1169,8 @@ joinGroupForm?.addEventListener("submit", async (e) => {
 
 chatForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (!chatPeer) {
-    setMsg(chatMsg, "Selectează un prieten din listă (Chat).", "error");
+  if (!chatPeer && !currentServer) {
+    setMsg(chatMsg, "Selectează un prieten sau server.", "error");
     return;
   }
   const body = String(chatInput?.value || "").trim();
@@ -1072,10 +1180,15 @@ chatForm?.addEventListener("submit", async (e) => {
     return;
   }
   try {
-    const data = await api("/api/messages/send", {
-      method: "POST",
-      body: JSON.stringify({ toPublicId: chatPeer.publicId, body }),
-    });
+    const data = currentServer
+      ? await api(`/api/groups/${currentServer.groupCode}/messages/send`, {
+          method: "POST",
+          body: JSON.stringify({ body }),
+        })
+      : await api("/api/messages/send", {
+          method: "POST",
+          body: JSON.stringify({ toPublicId: chatPeer.publicId, body }),
+        });
     chatInput.value = "";
     setMsg(chatMsg, "");
     // append my own message immediately
@@ -1137,6 +1250,17 @@ closeServerModalBtn?.addEventListener("click", () => serverModal?.classList.add(
 serverModal?.addEventListener("click", (e) => {
   if (e.target === serverModal) serverModal.classList.add("hidden");
 });
+document.addEventListener("click", () => closeServerContextMenu());
+serverCallBtn?.addEventListener("click", () => {
+  if (!socket || !currentServer) return;
+  socket.emit("group:call", { groupCode: currentServer.groupCode });
+  setMsg(callMsg, `Server call started in ${currentServer.name}.`, "muted");
+  setMainTab("call");
+});
+closeServerSettingsBtn?.addEventListener("click", () => serverSettingsModal?.classList.add("hidden"));
+serverSettingsModal?.addEventListener("click", (e) => {
+  if (e.target === serverSettingsModal) serverSettingsModal.classList.add("hidden");
+});
 
 settingsForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1152,6 +1276,42 @@ settingsForm?.addEventListener("submit", async (e) => {
   } catch (err) {
     const code = err?.data?.error || "error";
     setMsg(settingsMsg, code, "error");
+  }
+});
+
+serverSettingsForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentServer) return;
+  setMsg(serverSettingsMsg, "Saving...");
+  const form = new FormData(serverSettingsForm);
+  const name = String(form.get("name") || "").trim();
+  const avatarUrl = String(form.get("avatarUrl") || "").trim();
+  try {
+    const data = await api(`/api/groups/${currentServer.groupCode}/settings`, {
+      method: "POST",
+      body: JSON.stringify({ name, avatarUrl }),
+    });
+    currentServer = { ...currentServer, ...data.group };
+    setMsg(serverSettingsMsg, "Saved.");
+    await refreshGroups();
+    if (mainTitle && currentServer) mainTitle.textContent = `${currentServer.name} • ${currentServer.groupCode}`;
+  } catch (err) {
+    setMsg(serverSettingsMsg, err?.data?.error || "error", "error");
+  }
+});
+
+resetServerIdBtn?.addEventListener("click", async () => {
+  if (!currentServer) return;
+  setMsg(serverSettingsMsg, "Resetting ID...");
+  try {
+    const data = await api(`/api/groups/${currentServer.groupCode}/reset-id`, { method: "POST", body: JSON.stringify({}) });
+    currentServer.groupCode = data.groupCode;
+    if (serverSettingsId) serverSettingsId.textContent = data.groupCode;
+    setMsg(serverSettingsMsg, "ID reset. Non-owner members were removed.");
+    await refreshGroups();
+    if (mainTitle) mainTitle.textContent = `${currentServer.name} • ${currentServer.groupCode}`;
+  } catch (err) {
+    setMsg(serverSettingsMsg, err?.data?.error || "error", "error");
   }
 });
 

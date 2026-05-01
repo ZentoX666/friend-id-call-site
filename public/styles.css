@@ -143,6 +143,27 @@ input:focus{border-color:rgba(110,168,254,.65);box-shadow:0 0 0 4px rgba(110,168
 .server-plus{font-size:24px; line-height:1}
 .server-icons{display:flex;flex-direction:column;gap:8px;width:100%;align-items:center}
 .server-icon.active{border-color:rgba(110,168,254,.65)}
+.server-menu{
+  position:fixed;
+  z-index:60;
+  min-width:160px;
+  background: rgba(18,26,51,.98);
+  border:1px solid var(--border);
+  border-radius:10px;
+  box-shadow: var(--shadow);
+  padding:6px;
+}
+.server-menu button{
+  width:100%;
+  text-align:left;
+  background:transparent;
+  border:none;
+  color:var(--text);
+  padding:8px 10px;
+  border-radius:8px;
+  cursor:pointer;
+}
+.server-menu button:hover{background:rgba(255,255,255,.08)}
 .modal{
   position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:50;
   display:grid; place-items:center; padding:16px;

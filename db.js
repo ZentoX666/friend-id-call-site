@@ -26,6 +26,10 @@ function normalizeRow(row) {
   if (out.fromPublicId == null && out.frompublicid != null) out.fromPublicId = out.frompublicid;
   if (out.toPublicId == null && out.topublicid != null) out.toPublicId = out.topublicid;
   if (out.createdAt == null && out.createdat != null) out.createdAt = out.createdat;
+  if (out.groupCode == null && out.groupcode != null) out.groupCode = out.groupcode;
+  if (out.groupId == null && out.groupid != null) out.groupId = out.groupid;
+  if (out.fromDisplayName == null && out.fromdisplayname != null) out.fromDisplayName = out.fromdisplayname;
+  if (out.fromAvatarUrl == null && out.fromavatarurl != null) out.fromAvatarUrl = out.fromavatarurl;
 
   return out;
 }
@@ -98,6 +102,7 @@ async function initDb() {
         group_code TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         created_by_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        avatar_url TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
 
@@ -107,7 +112,17 @@ async function initDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (group_id, user_id)
       );
+
+      CREATE TABLE IF NOT EXISTS group_messages (
+        id SERIAL PRIMARY KEY,
+        group_id INT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+        from_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
     `);
+
+    await pgPool.query("ALTER TABLE groups ADD COLUMN IF NOT EXISTS avatar_url TEXT");
 
     return true;
   }
@@ -156,6 +171,7 @@ async function initDb() {
         group_code TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         created_by_user_id INTEGER NOT NULL,
+        avatar_url TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
@@ -164,6 +180,14 @@ async function initDb() {
         user_id INTEGER NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (group_id, user_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS group_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL,
+        from_user_id INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
   `);
 
