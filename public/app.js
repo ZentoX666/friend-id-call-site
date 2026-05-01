@@ -37,6 +37,8 @@ const remoteVolume = el("remoteVolume");
 const remoteVolumeLabel = el("remoteVolumeLabel");
 const micVolume = el("micVolume");
 const micVolumeLabel = el("micVolumeLabel");
+const callDuration = el("callDuration");
+const callMsg = el("callMsg");
 
 const mainTitle = el("mainTitle");
 const chatPanel = el("chatPanel");
@@ -85,6 +87,9 @@ let localProcessedTrack = null;
 
 let ringIn = null;
 let ringBack = null;
+let callStartedAt = null;
+let callTimer = null;
+let outgoingNoAnswerTimer = null;
 
 function setMsg(node, text, kind = "muted") {
   node.textContent = text || "";
@@ -105,6 +110,35 @@ function show(view) {
 
 function setCallState(state) {
   callStatus.textContent = state;
+}
+
+function formatDuration(totalSec) {
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, "0");
+  const ss = String(totalSec % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function startCallTimer() {
+  stopCallTimer();
+  callStartedAt = Date.now();
+  if (callDuration) callDuration.textContent = "00:00";
+  callTimer = setInterval(() => {
+    if (!callStartedAt || !callDuration) return;
+    const sec = Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000));
+    callDuration.textContent = formatDuration(sec);
+  }, 1000);
+}
+
+function stopCallTimer() {
+  if (callTimer) clearInterval(callTimer);
+  callTimer = null;
+  callStartedAt = null;
+  if (callDuration) callDuration.textContent = "00:00";
+}
+
+function clearNoAnswerTimer() {
+  if (outgoingNoAnswerTimer) clearTimeout(outgoingNoAnswerTimer);
+  outgoingNoAnswerTimer = null;
 }
 
 function setIncomingUI(on) {
@@ -285,7 +319,8 @@ async function openChatWith(friend) {
     if (chatInput) chatInput.focus();
   } catch (err) {
     const code = err?.data?.error || "error";
-    setMsg(chatMsg, code, "error");
+    const readable = code === "not_friends" ? "Nu mai sunteți prieteni." : "Nu am putut încărca chat-ul.";
+    setMsg(chatMsg, readable, "error");
   }
 }
 
@@ -461,8 +496,11 @@ async function refreshMe() {
     socket.on("call:answer", async ({ fromPublicId, answer }) => {
       if (!pc || currentPeerPublicId !== fromPublicId) return;
       await pc.setRemoteDescription(answer);
+      clearNoAnswerTimer();
       stopAllRings();
       setCallState("in_call");
+      setMsg(callMsg, "");
+      startCallTimer();
       setInCallUI(true);
     });
 
@@ -476,7 +514,9 @@ async function refreshMe() {
     });
 
     socket.on("call:error", ({ error }) => {
-      setCallState(`error: ${error}`);
+      const readable = error === "friend_offline" ? "Utilizatorul este offline." : "Eroare la apel.";
+      setCallState("idle");
+      setMsg(callMsg, readable, "error");
       stopAllRings();
       cleanupCall();
     });
@@ -603,7 +643,12 @@ function makePeerConnection(toPublicId) {
 
   pc.onconnectionstatechange = () => {
     const st = pc?.connectionState;
-    if (st === "connected") setCallState("in_call");
+    if (st === "connected") {
+      clearNoAnswerTimer();
+      setCallState("in_call");
+      setMsg(callMsg, "");
+      if (!callStartedAt) startCallTimer();
+    }
     if (st === "failed") {
       attemptReconnect("failed");
       return;
@@ -681,17 +726,26 @@ async function startCall(toPublicId) {
   if (!socket) return;
   if (!socketReady) {
     setCallState("connecting...");
-    setMsg(chatMsg, "Așteaptă 1-2 secunde și încearcă din nou (socket încă se autentifică).", "error");
+    setMsg(callMsg, "Așteaptă 1-2 secunde și încearcă din nou (socket încă se autentifică).", "error");
     return;
   }
   if (pc || pendingIncoming) return;
 
   try {
     setCallState(`calling ${toPublicId}...`);
+    setMsg(callMsg, "");
     setMainTab("call");
     makePeerConnection(toPublicId);
     isCaller = true;
     startRingBack();
+    clearNoAnswerTimer();
+    outgoingNoAnswerTimer = setTimeout(() => {
+      if (pc && isCaller) {
+        setCallState("idle");
+        setMsg(callMsg, "Nu a răspuns. Apel închis automat.", "error");
+        cleanupCall();
+      }
+    }, 30000);
 
     const stream = await getLocalAudio();
     // Send processed mic track if available (supports 0–200% outgoing volume)
@@ -707,6 +761,7 @@ async function startCall(toPublicId) {
     setInCallUI(true);
   } catch (e) {
     setCallState("call_failed");
+    setMsg(callMsg, "Apelul nu a pornit.", "error");
     stopAllRings();
     cleanupCall();
   }
@@ -721,6 +776,7 @@ async function acceptIncoming() {
 
   try {
     setCallState("accepting...");
+    setMsg(callMsg, "");
     makePeerConnection(fromPublicId);
     isCaller = false;
 
@@ -737,8 +793,10 @@ async function acceptIncoming() {
     socket.emit("call:answer", { toPublicId: fromPublicId, answer });
     setInCallUI(true);
     setCallState("in_call");
+    startCallTimer();
   } catch {
     setCallState("accept_failed");
+    setMsg(callMsg, "Nu am putut accepta apelul.", "error");
     stopAllRings();
     cleanupCall();
   }
@@ -749,10 +807,13 @@ function declineIncoming() {
   setIncomingUI(false);
   stopAllRings();
   setCallState("idle");
+  setMsg(callMsg, "");
 }
 
 function cleanupCall() {
   stopAllRings();
+  clearNoAnswerTimer();
+  stopCallTimer();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;

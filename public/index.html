@@ -112,9 +112,15 @@
             </section>
 
             <section id="callPanel" class="panel hidden">
-              <div class="call-row">
-                <div class="muted">Status:</div>
-                <div id="callStatus" class="mono">idle</div>
+              <div class="call-top">
+                <div class="call-row">
+                  <div class="muted">Status:</div>
+                  <div id="callStatus" class="mono">idle</div>
+                </div>
+                <div class="call-row">
+                  <div class="muted">Durată:</div>
+                  <div id="callDuration" class="mono">00:00</div>
+                </div>
               </div>
               <div class="call-actions">
                 <button id="hangupBtn" class="btn btn-danger hidden">Închide</button>
@@ -135,6 +141,7 @@
                   <div id="micVolumeLabel" class="mono muted">100%</div>
                 </div>
               </div>
+              <div class="hint" id="callMsg"></div>
               <audio id="remoteAudio" autoplay></audio>
             </section>
 

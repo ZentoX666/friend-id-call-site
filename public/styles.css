@@ -238,6 +238,16 @@ input:focus{border-color:rgba(110,168,254,.65);box-shadow:0 0 0 4px rgba(110,168
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media (max-width:860px){.settings-grid{grid-template-columns:1fr}}
 .inner-card{padding:16px}
+.call-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background: rgba(10,15,30,.35);
+}
 .call-row{display:flex;gap:10px;align-items:center;margin:10px 0}
 .call-actions{display:flex;gap:10px;flex-wrap:wrap}
 .call-controls{
