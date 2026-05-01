@@ -3,6 +3,7 @@ const el = (id) => document.getElementById(id);
 const authView = el("authView");
 const appView = el("appView");
 const logoutBtn = el("logoutBtn");
+const enableNotificationsBtn = el("enableNotificationsBtn");
 
 const loginForm = el("loginForm");
 const signupForm = el("signupForm");
@@ -19,6 +20,10 @@ const meName = el("meName");
 const addFriendForm = el("addFriendForm");
 const addFriendMsg = el("addFriendMsg");
 const friendsList = el("friendsList");
+const createGroupForm = el("createGroupForm");
+const joinGroupForm = el("joinGroupForm");
+const groupMsg = el("groupMsg");
+const groupsList = el("groupsList");
 
 const chatWith = el("chatWith");
 const chatMessages = el("chatMessages");
@@ -91,6 +96,44 @@ let callStartedAt = null;
 let callTimer = null;
 let outgoingNoAnswerTimer = null;
 
+function notificationsSupported() {
+  return typeof window !== "undefined" && "Notification" in window;
+}
+
+function updateNotificationsButton() {
+  if (!enableNotificationsBtn) return;
+  if (!notificationsSupported()) {
+    enableNotificationsBtn.classList.add("hidden");
+    return;
+  }
+  const denied = Notification.permission === "denied";
+  const granted = Notification.permission === "granted";
+  enableNotificationsBtn.classList.toggle("hidden", granted);
+  enableNotificationsBtn.textContent = denied ? "Notifications blocked in browser" : "Enable notifications";
+  enableNotificationsBtn.disabled = denied;
+}
+
+async function requestNotificationsPermission() {
+  if (!notificationsSupported()) return;
+  try {
+    await Notification.requestPermission();
+  } catch {
+    // ignore
+  }
+  updateNotificationsButton();
+}
+
+function showNotification(title, body) {
+  if (!notificationsSupported()) return;
+  if (Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(title, { body, icon: "/favicon.ico" });
+    setTimeout(() => n.close(), 6000);
+  } catch {
+    // ignore
+  }
+}
+
 function setMsg(node, text, kind = "muted") {
   node.textContent = text || "";
   node.style.color = kind === "error" ? "rgba(255,90,122,.95)" : "var(--muted)";
@@ -101,10 +144,12 @@ function show(view) {
     authView.classList.remove("hidden");
     appView.classList.add("hidden");
     logoutBtn.classList.add("hidden");
+    enableNotificationsBtn?.classList.add("hidden");
   } else {
     authView.classList.add("hidden");
     appView.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
+    updateNotificationsButton();
   }
 }
 
@@ -445,6 +490,10 @@ async function refreshMe() {
   setIncomingUI(false);
   setInCallUI(false);
   show("app");
+  updateNotificationsButton();
+  if (notificationsSupported() && Notification.permission === "default") {
+    requestNotificationsPermission();
+  }
 
   // prefill settings
   if (settingsDisplayName) settingsDisplayName.value = me.displayName || "";
@@ -491,6 +540,7 @@ async function refreshMe() {
       setIncomingUI(true);
       setMainTab("call");
       startRingIn();
+      if (document.hidden) showNotification("Incoming call", `${fromPublicId} is calling you`);
     });
 
     socket.on("call:answer", async ({ fromPublicId, answer }) => {
@@ -542,10 +592,14 @@ async function refreshMe() {
       } else {
         setMsg(chatMsg, "Mesaj nou primit.", "muted");
       }
+      if (document.hidden && msg.fromPublicId !== me?.publicId) {
+        showNotification("New message", `From ${msg.fromPublicId}: ${String(msg.body || "").slice(0, 80)}`);
+      }
     });
   }
 
   await refreshFriends();
+  await refreshGroups();
 }
 
 async function refreshFriends() {
@@ -612,6 +666,32 @@ async function refreshFriends() {
       row.classList.add("active");
       openChatWith(f);
     });
+  }
+}
+
+async function refreshGroups() {
+  if (!groupsList) return;
+  const data = await api("/api/groups");
+  groupsList.innerHTML = "";
+  if (!data.groups?.length) {
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.textContent = "Nu ești în niciun grup.";
+    groupsList.appendChild(empty);
+    return;
+  }
+  for (const g of data.groups) {
+    const item = document.createElement("div");
+    item.className = "group-item";
+    const name = document.createElement("div");
+    name.className = "group-name";
+    name.textContent = g.name || "Group";
+    const code = document.createElement("div");
+    code.className = "mono muted";
+    code.textContent = `ID: ${g.groupCode}`;
+    item.appendChild(name);
+    item.appendChild(code);
+    groupsList.appendChild(item);
   }
 }
 
@@ -915,6 +995,46 @@ addFriendForm.addEventListener("submit", async (e) => {
   }
 });
 
+createGroupForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setMsg(groupMsg, "Creating...");
+  const form = new FormData(createGroupForm);
+  const name = String(form.get("groupName") || "").trim();
+  if (!name || name.length > 80) {
+    setMsg(groupMsg, "Nume grup invalid.", "error");
+    return;
+  }
+  try {
+    const data = await api("/api/groups/create", { method: "POST", body: JSON.stringify({ name }) });
+    setMsg(groupMsg, `Created. Group ID: ${data.group.groupCode}`);
+    createGroupForm.reset();
+    await refreshGroups();
+  } catch (err) {
+    const code = err?.data?.error || "error";
+    setMsg(groupMsg, code, "error");
+  }
+});
+
+joinGroupForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setMsg(groupMsg, "Joining...");
+  const form = new FormData(joinGroupForm);
+  const groupCode = String(form.get("groupCode") || "").trim();
+  if (!/^\d{10,15}$/.test(groupCode)) {
+    setMsg(groupMsg, "Group ID invalid (10-15 cifre).", "error");
+    return;
+  }
+  try {
+    await api("/api/groups/join", { method: "POST", body: JSON.stringify({ groupCode }) });
+    setMsg(groupMsg, "Joined.");
+    joinGroupForm.reset();
+    await refreshGroups();
+  } catch (err) {
+    const code = err?.data?.error || "error";
+    setMsg(groupMsg, code, "error");
+  }
+});
+
 chatForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!chatPeer) {
@@ -987,6 +1107,7 @@ mainChatTab?.addEventListener("click", () => setMainTab("chat"));
 mainCallTab?.addEventListener("click", () => setMainTab("call"));
 mainSettingsTab?.addEventListener("click", () => setMainTab("settings"));
 openSettingsBtn?.addEventListener("click", () => setMainTab("settings"));
+enableNotificationsBtn?.addEventListener("click", () => requestNotificationsPermission());
 
 settingsForm?.addEventListener("submit", async (e) => {
   e.preventDefault();

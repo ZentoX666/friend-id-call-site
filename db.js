@@ -92,6 +92,21 @@ async function initDb() {
         body TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+
+      CREATE TABLE IF NOT EXISTS groups (
+        id SERIAL PRIMARY KEY,
+        group_code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        created_by_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS group_members (
+        group_id INT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (group_id, user_id)
+      );
     `);
 
     return true;
@@ -134,6 +149,21 @@ async function initDb() {
         to_user_id INTEGER NOT NULL,
         body TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        created_by_user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS group_members (
+        group_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (group_id, user_id)
       );
   `);
 
@@ -217,11 +247,24 @@ async function generateUniquePublicId() {
   }
 }
 
+async function generateUniqueGroupCode() {
+  for (let i = 0; i < 50; i++) {
+    const len = randomInt(10, 15);
+    let code = "";
+    for (let j = 0; j < len; j++) code += String(randomInt(0, 9));
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await getOne("SELECT 1 AS ok FROM groups WHERE group_code = ?", [code]);
+    if (!exists) return code;
+  }
+  throw new Error("group_code_generation_failed");
+}
+
 module.exports = {
   initDb,
   getOne,
   getAll,
   run,
   generateUniquePublicId,
+  generateUniqueGroupCode,
 };
 

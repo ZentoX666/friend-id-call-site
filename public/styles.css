@@ -22,6 +22,7 @@ body{
 .container{max-width:1180px;margin:22px auto;padding:0 16px}
 .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .brand{font-weight:700;letter-spacing:.3px}
+.topbar-actions{display:flex;gap:8px;align-items:center}
 .card{
   background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
   border:1px solid var(--border);
@@ -154,6 +155,7 @@ input:focus{border-color:rgba(110,168,254,.65);box-shadow:0 0 0 4px rgba(110,168
 .sidebar-section{display:flex;flex-direction:column;gap:8px}
 .sidebar-title{text-transform:uppercase;letter-spacing:.12em;font-size:11px}
 .friends{display:flex;flex-direction:column;gap:8px}
+.groups{display:flex;flex-direction:column;gap:8px}
 .friend{
   display:flex;
   align-items:center;
@@ -182,6 +184,13 @@ input:focus{border-color:rgba(110,168,254,.65);box-shadow:0 0 0 4px rgba(110,168
 }
 .friend-avatar img{width:100%;height:100%;object-fit:cover;display:block}
 .friend .actions{display:flex;gap:8px}
+.group-item{
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background: rgba(10,15,30,.45);
+}
+.group-name{font-weight:700}
 
 .main-header{
   display:flex;

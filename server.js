@@ -7,7 +7,7 @@ const express = require("express");
 const session = require("express-session");
 const { Server } = require("socket.io");
 
-const { initDb, getOne, getAll, run, generateUniquePublicId } = require("./db");
+const { initDb, getOne, getAll, run, generateUniquePublicId, generateUniqueGroupCode } = require("./db");
 
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-insecure-secret";
@@ -179,6 +179,54 @@ async function main() {
     await run("INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)", [req.session.userId, friend.id]);
     await run("INSERT OR IGNORE INTO friendships (user_id, friend_user_id) VALUES (?, ?)", [friend.id, req.session.userId]);
     res.json({ ok: true });
+  });
+
+  app.get("/api/groups", requireAuth, async (req, res) => {
+    const groups = await getAll(
+      `
+      SELECT g.group_code AS groupCode, g.name AS name, g.created_at AS createdAt
+      FROM group_members gm
+      JOIN groups g ON g.id = gm.group_id
+      WHERE gm.user_id = ?
+      ORDER BY gm.created_at DESC
+    `,
+      [req.session.userId]
+    );
+    res.json({ groups });
+  });
+
+  app.post("/api/groups/create", requireAuth, async (req, res) => {
+    try {
+      const name = String(req.body.name || "").trim();
+      if (!name || name.length > 80) return res.status(400).json({ error: "invalid_group_name" });
+
+      const groupCode = await generateUniqueGroupCode();
+      await run("INSERT INTO groups (group_code, name, created_by_user_id) VALUES (?, ?, ?)", [
+        groupCode,
+        name,
+        req.session.userId,
+      ]);
+      const group = await getOne("SELECT id, group_code AS groupCode, name FROM groups WHERE group_code = ?", [groupCode]);
+      await run("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)", [group.id, req.session.userId]);
+      res.json({ ok: true, group: { groupCode: group.groupCode, name: group.name } });
+    } catch {
+      res.status(500).json({ error: "server_error" });
+    }
+  });
+
+  app.post("/api/groups/join", requireAuth, async (req, res) => {
+    try {
+      const groupCode = String(req.body.groupCode || "").trim();
+      if (!/^\d{10,15}$/.test(groupCode)) return res.status(400).json({ error: "invalid_group_code" });
+
+      const group = await getOne("SELECT id, group_code AS groupCode, name FROM groups WHERE group_code = ?", [groupCode]);
+      if (!group) return res.status(404).json({ error: "group_not_found" });
+
+      await run("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)", [group.id, req.session.userId]);
+      res.json({ ok: true, group: { groupCode: group.groupCode, name: group.name } });
+    } catch {
+      res.status(500).json({ error: "server_error" });
+    }
   });
 
   // Map userId -> socket.id (single active socket)
