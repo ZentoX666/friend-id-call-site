@@ -206,6 +206,27 @@ input:focus{border-color:rgba(110,168,254,.65);box-shadow:0 0 0 4px rgba(110,168
 }
 .tab2.active{border-color:rgba(110,168,254,.55);box-shadow:0 0 0 4px rgba(110,168,254,.10) inset}
 .panel{flex:1;min-height:0}
+.incoming-call{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:10px;
+  padding:14px;
+  border-radius:14px;
+  border:1px solid rgba(255,90,122,.35);
+  background: linear-gradient(180deg, rgba(255,90,122,.18), rgba(255,90,122,.08));
+}
+.incoming-title{font-size:18px;font-weight:900}
+.incoming-actions{display:flex;gap:10px;flex-wrap:wrap}
+.incoming-accept{
+  background: linear-gradient(180deg, rgba(82,196,110,.95), rgba(82,196,110,.75));
+  color:#081a0e;
+}
+.incoming-decline{
+  background: linear-gradient(180deg, rgba(255,90,122,.95), rgba(255,90,122,.70));
+  color:#22010a;
+}
 .empty-state{
   height:100%;
   display:grid;

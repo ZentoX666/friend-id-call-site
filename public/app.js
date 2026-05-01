@@ -49,6 +49,10 @@ const openSettingsBtn = el("openSettingsBtn");
 
 const chatWrap = el("chatWrap");
 const chatEmpty = el("chatEmpty");
+const incomingCallBanner = el("incomingCallBanner");
+const incomingCallText = el("incomingCallText");
+const chatAcceptBtn = el("chatAcceptBtn");
+const chatDeclineBtn = el("chatDeclineBtn");
 
 const settingsForm = el("settingsForm");
 const settingsMsg = el("settingsMsg");
@@ -106,6 +110,7 @@ function setCallState(state) {
 function setIncomingUI(on) {
   acceptBtn.classList.toggle("hidden", !on);
   declineBtn.classList.toggle("hidden", !on);
+  incomingCallBanner?.classList.toggle("hidden", !on);
 }
 
 function setInCallUI(on) {
@@ -446,6 +451,7 @@ async function refreshMe() {
       pendingIncoming = { fromPublicId, offer };
       currentPeerPublicId = fromPublicId;
       isCaller = false;
+      if (incomingCallText) incomingCallText.textContent = `${fromPublicId} is calling you`;
       setCallState(`incoming from ${fromPublicId}`);
       setIncomingUI(true);
       setMainTab("call");
@@ -893,6 +899,8 @@ hangupBtn.addEventListener("click", () => {
 });
 acceptBtn.addEventListener("click", () => acceptIncoming());
 declineBtn.addEventListener("click", () => declineIncoming());
+chatAcceptBtn?.addEventListener("click", () => acceptIncoming());
+chatDeclineBtn?.addEventListener("click", () => declineIncoming());
 
 micMuteBtn?.addEventListener("click", () => {
   unlockAudio();
