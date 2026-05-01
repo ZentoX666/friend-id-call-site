@@ -64,6 +64,7 @@ let currentPeerPublicId = null;
 let pendingIncoming = null; // { fromPublicId, offer }
 let isCaller = false;
 let reconnectTimer = null;
+let socketReady = false;
 
 let chatPeer = null; // { publicId, email }
 let audioCtx = null;
@@ -413,10 +414,17 @@ async function refreshMe() {
   if (!socket) {
     socket = io();
     socket.on("connect", () => {
+      socketReady = false;
       socket.emit("auth", { publicId: me.publicId });
     });
 
-    socket.on("presence:ready", () => {});
+    socket.on("presence:ready", () => {
+      socketReady = true;
+    });
+
+    socket.on("disconnect", () => {
+      socketReady = false;
+    });
 
     socket.on("call:incoming", async ({ fromPublicId, offer }) => {
       // If we're already in a call with the same peer, treat as renegotiation (ICE restart, etc.)
@@ -440,6 +448,7 @@ async function refreshMe() {
       isCaller = false;
       setCallState(`incoming from ${fromPublicId}`);
       setIncomingUI(true);
+      setMainTab("call");
       startRingIn();
     });
 
@@ -664,10 +673,16 @@ async function getLocalAudio() {
 async function startCall(toPublicId) {
   setMsg(addFriendMsg, "");
   if (!socket) return;
+  if (!socketReady) {
+    setCallState("connecting...");
+    setMsg(chatMsg, "Așteaptă 1-2 secunde și încearcă din nou (socket încă se autentifică).", "error");
+    return;
+  }
   if (pc || pendingIncoming) return;
 
   try {
     setCallState(`calling ${toPublicId}...`);
+    setMainTab("call");
     makePeerConnection(toPublicId);
     isCaller = true;
     startRingBack();
