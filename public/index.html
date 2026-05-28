@@ -3,13 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Friend ID Call</title>
+    <title>Cyber Discord · Friend ID Call</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="container">
       <div class="topbar">
-        <div class="brand">Friend ID Call</div>
+        <div class="brand neon-glow-green">Cyber Discord</div>
         <div class="topbar-actions">
           <button id="enableNotificationsBtn" class="btn btn-ghost hidden" type="button">Enable notifications</button>
           <button id="logoutBtn" class="btn btn-ghost hidden">Logout</button>
@@ -119,11 +121,20 @@
             </div>
 
             <section id="chatPanel" class="panel">
-              <div id="incomingCallBanner" class="incoming-call hidden">
-                <div id="incomingCallText" class="incoming-title mono">Incoming call</div>
+              <div id="incomingCallBanner" class="incoming-call hidden neon-border-green">
+                <div class="wave-bars" aria-hidden="true">
+                  <span class="wave-bar"></span>
+                  <span class="wave-bar"></span>
+                  <span class="wave-bar"></span>
+                  <span class="wave-bar"></span>
+                  <span class="wave-bar"></span>
+                </div>
+                <div id="incomingCallText" class="incoming-title mono neon-glow-green">Incoming call</div>
                 <div class="incoming-actions">
-                  <button id="chatAcceptBtn" class="btn incoming-accept" type="button">📞 Răspunde</button>
-                  <button id="chatDeclineBtn" class="btn incoming-decline" type="button">Hangout</button>
+                  <div class="incoming-accept-wrap">
+                    <button id="chatAcceptBtn" class="button-accept" type="button">RĂSPUNDE</button>
+                  </div>
+                  <button id="chatDeclineBtn" class="btn incoming-decline" type="button">Respinge</button>
                 </div>
               </div>
               <div class="empty-state" id="chatEmpty">Alege un prieten din stânga ca să deschizi chat-ul.</div>
@@ -142,19 +153,32 @@
             </section>
 
             <section id="callPanel" class="panel hidden">
-              <div class="call-top">
-                <div class="call-row">
-                  <div class="muted">Status:</div>
-                  <div id="callStatus" class="mono">idle</div>
+              <div class="call-top call-top-voice">
+                <div class="call-top-meta">
+                  <div class="call-row">
+                    <div class="muted">Status:</div>
+                    <div id="callStatus" class="mono">idle</div>
+                  </div>
+                  <div class="call-row">
+                    <div class="muted">Durată:</div>
+                    <div id="callDuration" class="mono">00:00</div>
+                  </div>
                 </div>
-                <div class="call-row">
-                  <div class="muted">Durată:</div>
-                  <div id="callDuration" class="mono">00:00</div>
+                <div class="wave-bars" id="callWaveBars" aria-hidden="true">
+                  <span class="wave-bar"></span>
+                  <span class="wave-bar"></span>
+                  <span class="wave-bar"></span>
+                  <span class="wave-bar"></span>
+                  <span class="wave-bar"></span>
                 </div>
               </div>
               <div class="call-actions">
                 <button id="hangupBtn" class="btn btn-danger hidden">Închide</button>
-                <button id="acceptBtn" class="btn hidden">Acceptă</button>
+              </div>
+              <div class="call-panel-accept">
+                <button id="acceptBtn" class="button-accept hidden" type="button">ACCEPTĂ</button>
+              </div>
+              <div class="call-actions">
                 <button id="declineBtn" class="btn btn-ghost hidden">Respinge</button>
               </div>
               <div class="call-controls">
@@ -226,6 +250,8 @@
         </div>
       </div>
     </div>
+
+    <div class="madeBy">TAKEINFO · CYBER DISCORD</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="/app.js"></script>
