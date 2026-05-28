@@ -174,7 +174,7 @@ async function main() {
       displayName: r.displayName,
       avatarUrl: r.avatarUrl,
       bio: r.bio,
-      online: isUserOnline(r.userId),
+      online: isUserOnline(r.userId ?? r.userid),
     }));
     res.json({ friends });
   });
@@ -374,20 +374,45 @@ async function main() {
     res.json({ ok: true, groupCode: newCode });
   });
 
-  // Map userId -> socket.id (single active socket)
+  // Map userId (number) -> socket.id
   const userSockets = new Map();
+
+  function uid(id) {
+    const n = Number(id);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function setUserSocket(userId, socketId) {
+    const id = uid(userId);
+    if (id == null) return;
+    userSockets.set(id, socketId);
+  }
+
+  function clearUserSocket(userId) {
+    const id = uid(userId);
+    if (id == null) return;
+    userSockets.delete(id);
+  }
+
+  function getUserSocketId(userId) {
+    const id = uid(userId);
+    if (id == null) return null;
+    return userSockets.get(id) || null;
+  }
 
   async function getFriendUserIds(userId) {
     const rows = await getAll("SELECT friend_user_id AS friendId FROM friendships WHERE user_id = ?", [userId]);
-    return rows.map((r) => r.friendId);
+    return rows.map((r) => uid(r.friendId)).filter((id) => id != null);
   }
 
   async function notifyFriendsPresence(userId, publicId, online) {
-    if (!userId || publicId == null) return;
-    const friendIds = await getFriendUserIds(userId);
+    const myId = uid(userId);
+    if (myId == null || publicId == null) return;
+    const friendIds = await getFriendUserIds(myId);
+    const pid = Number(publicId);
     for (const fid of friendIds) {
-      const sockId = userSockets.get(fid);
-      if (sockId) io.to(sockId).emit("presence:update", { publicId: Number(publicId), online: !!online });
+      const sockId = getUserSocketId(fid);
+      if (sockId) io.to(sockId).emit("presence:update", { publicId: pid, online: !!online });
     }
   }
 
@@ -395,7 +420,7 @@ async function main() {
     const friendIds = await getFriendUserIds(userId);
     const online = [];
     for (const fid of friendIds) {
-      if (!userSockets.has(fid)) continue;
+      if (!getUserSocketId(fid)) continue;
       const u = await getOne("SELECT public_id AS publicId FROM users WHERE id = ?", [fid]);
       if (u?.publicId != null) online.push(Number(u.publicId));
     }
@@ -403,7 +428,9 @@ async function main() {
   }
 
   function isUserOnline(userId) {
-    return userSockets.has(userId);
+    const id = uid(userId);
+    if (id == null) return false;
+    return userSockets.has(id);
   }
 
   // ----- Chat (persistent in SQLite file) -----
@@ -495,7 +522,7 @@ async function main() {
       fromAvatarUrl: sender?.avatarUrl || null,
     };
 
-    const toSocketId = userSockets.get(friend.id);
+    const toSocketId = getUserSocketId(friend.id);
     if (toSocketId) io.to(toSocketId).emit("chat:message", enriched);
 
     res.json({ ok: true, message: enriched });
@@ -509,9 +536,11 @@ async function main() {
         if (!Number.isInteger(pid)) return;
         const user = await getOne("SELECT id, public_id AS publicId FROM users WHERE public_id = ?", [pid]);
         if (!user) return;
-        userSockets.set(user.id, socket.id);
-        socket.data.userId = user.id;
-        socket.data.publicId = user.publicId ?? user.public_id;
+        const userId = uid(user.id);
+        if (userId == null) return;
+        setUserSocket(userId, socket.id);
+        socket.data.userId = userId;
+        socket.data.publicId = Number(user.publicId ?? user.public_id);
         const groups = await getAll(
           `
           SELECT g.id AS groupId
@@ -527,9 +556,9 @@ async function main() {
           [user.id]
         );
         for (const s of servers) socket.join(`server:${s.serverId}`);
-        const onlineFriends = await getOnlineFriendPublicIds(user.id);
+        const onlineFriends = await getOnlineFriendPublicIds(userId);
         socket.emit("presence:ready", { ok: true, onlinePublicIds: onlineFriends });
-        await notifyFriendsPresence(user.id, socket.data.publicId, true);
+        await notifyFriendsPresence(userId, socket.data.publicId, true);
       } catch {
         // ignore
       }
@@ -550,7 +579,7 @@ async function main() {
         ]);
         if (!isFriend) return;
 
-        const toSocketId = userSockets.get(toUser.id);
+        const toSocketId = getUserSocketId(toUser.id);
         if (!toSocketId) {
           socket.emit("call:error", { error: "friend_offline" });
           return;
@@ -569,7 +598,7 @@ async function main() {
         if (!Number.isInteger(toPid)) return;
         const toUser = await getOne("SELECT id FROM users WHERE public_id = ?", [toPid]);
         if (!toUser) return;
-        const toSocketId = userSockets.get(toUser.id);
+        const toSocketId = getUserSocketId(toUser.id);
         if (!toSocketId) return;
         io.to(toSocketId).emit("call:answer", { fromPublicId: socket.data.publicId, answer });
       } catch {
@@ -585,7 +614,7 @@ async function main() {
         if (!Number.isInteger(toPid)) return;
         const toUser = await getOne("SELECT id FROM users WHERE public_id = ?", [toPid]);
         if (!toUser) return;
-        const toSocketId = userSockets.get(toUser.id);
+        const toSocketId = getUserSocketId(toUser.id);
         if (!toSocketId) return;
         io.to(toSocketId).emit("call:ice", { fromPublicId: socket.data.publicId, candidate });
       } catch {
@@ -621,7 +650,7 @@ async function main() {
       const userId = socket.data.userId;
       const publicId = socket.data.publicId;
       if (userId) {
-        userSockets.delete(userId);
+        clearUserSocket(userId);
         notifyFriendsPresence(userId, publicId, false).catch(() => {});
       }
     });

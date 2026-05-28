@@ -37,6 +37,8 @@ function normalizeRow(row) {
   if (out.fromDisplayName == null && out.fromdisplayname != null) out.fromDisplayName = out.fromdisplayname;
   if (out.fromAvatarUrl == null && out.fromavatarurl != null) out.fromAvatarUrl = out.fromavatarurl;
   if (out.bio == null && row.bio != null) out.bio = row.bio;
+  if (out.userId == null && out.userid != null) out.userId = out.userid;
+  if (out.friendId == null && out.friendid != null) out.friendId = out.friendid;
 
   return out;
 }

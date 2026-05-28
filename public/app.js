@@ -96,6 +96,9 @@ let socketReady = false;
 let chatPeer = null; // { publicId, displayName, avatarUrl, online, bio }
 /** @type {Map<number, object>} */
 const friendsById = new Map();
+/** Friends currently online (by publicId), from socket presence */
+const onlinePublicIds = new Set();
+let socketAuthPromise = null;
 let audioCtx = null;
 let audioUnlocked = false;
 
@@ -777,8 +780,27 @@ function updateMobileCallBtn(friend) {
   }
 }
 
+function applyPresenceToFriendList() {
+  if (!friendsList) return;
+  for (const [pid, f] of friendsById) {
+    const online = onlinePublicIds.has(pid) || !!f.online;
+    f.online = online;
+    const row = friendsList.querySelector(`.friend[data-public-id="${pid}"]`);
+    const dot = row?.querySelector(".status-dot");
+    setStatusDot(dot, online);
+  }
+  if (chatPeer) {
+    const pid = Number(chatPeer.publicId);
+    chatPeer.online = onlinePublicIds.has(pid);
+    updateDmChatHeader(chatPeer);
+  }
+}
+
 function setFriendOnline(publicId, online) {
   const pid = Number(publicId);
+  if (!Number.isFinite(pid)) return;
+  if (online) onlinePublicIds.add(pid);
+  else onlinePublicIds.delete(pid);
   const f = friendsById.get(pid);
   if (f) f.online = online;
   if (chatPeer && Number(chatPeer.publicId) === pid) {
@@ -787,7 +809,31 @@ function setFriendOnline(publicId, online) {
   }
   const row = friendsList?.querySelector(`.friend[data-public-id="${pid}"]`);
   const dot = row?.querySelector(".status-dot");
-  setStatusDot(dot, online);
+  if (dot) setStatusDot(dot, online);
+}
+
+function ensureSocketAuth() {
+  if (!socket || !me?.publicId) return Promise.resolve();
+  if (socket.connected && socketReady) return Promise.resolve();
+  if (socketAuthPromise) return socketAuthPromise;
+
+  socketAuthPromise = new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      socket.off("presence:ready", onReady);
+      clearTimeout(timer);
+      socketAuthPromise = null;
+      resolve();
+    };
+    const onReady = () => finish();
+    socket.on("presence:ready", onReady);
+    const timer = setTimeout(finish, 8000);
+    if (!socket.connected) socket.connect();
+    socket.emit("auth", { publicId: me.publicId });
+  });
+  return socketAuthPromise;
 }
 
 async function openChatWith(friend) {
@@ -978,14 +1024,15 @@ async function refreshMe() {
     socket = io();
     socket.on("connect", () => {
       socketReady = false;
-      socket.emit("auth", { publicId: me.publicId });
+      if (me?.publicId) socket.emit("auth", { publicId: me.publicId });
     });
 
-    socket.on("presence:ready", ({ onlinePublicIds }) => {
+    socket.on("presence:ready", ({ onlinePublicIds: ids }) => {
       socketReady = true;
-      if (Array.isArray(onlinePublicIds)) {
-        for (const pid of onlinePublicIds) setFriendOnline(pid, true);
+      if (Array.isArray(ids)) {
+        for (const pid of ids) setFriendOnline(pid, true);
       }
+      applyPresenceToFriendList();
     });
 
     socket.on("presence:update", ({ publicId, online }) => {
@@ -1076,7 +1123,9 @@ async function refreshMe() {
 
   ServersUI?.setSocket(socket);
   VoiceChannels?.setSocket(socket);
+  await ensureSocketAuth();
   await refreshFriends();
+  applyPresenceToFriendList();
   await ServersUI?.loadServers();
 }
 
@@ -1094,7 +1143,10 @@ async function refreshFriends() {
   }
 
   for (const f of data.friends) {
-    friendsById.set(Number(f.publicId), f);
+    const pid = Number(f.publicId);
+    f.online = !!f.online || onlinePublicIds.has(pid);
+    if (f.online) onlinePublicIds.add(pid);
+    friendsById.set(pid, f);
 
     const row = document.createElement("div");
     row.className = "friend";
@@ -1111,7 +1163,7 @@ async function refreshFriends() {
     fillAvatarNode(avatar, f, String(f.publicId));
 
     const dot = document.createElement("span");
-    dot.className = "status-dot " + (f.online ? "online" : "offline");
+    dot.className = "status-dot " + (f.online || onlinePublicIds.has(pid) ? "online" : "offline");
     avWrap.appendChild(avatar);
     avWrap.appendChild(dot);
 
@@ -1561,7 +1613,10 @@ settingsForm?.addEventListener("submit", async (e) => {
 });
 
 function reauthSocket() {
-  if (socket && me?.publicId) socket.emit("auth", { publicId: me.publicId });
+  if (socket && me?.publicId) {
+    socketReady = false;
+    socket.emit("auth", { publicId: me.publicId });
+  }
 }
 window.reauthSocket = reauthSocket;
 
