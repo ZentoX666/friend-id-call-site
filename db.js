@@ -4,6 +4,7 @@ const crypto = require("crypto");
 
 const initSqlJs = require("sql.js");
 const { Pool } = require("pg");
+const { ensureServerSchema, generateUniqueInviteCode } = require("./lib/servers-db");
 
 // If DATABASE_URL is present, we use Postgres (Neon / Supabase / Render Postgres).
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -28,6 +29,11 @@ function normalizeRow(row) {
   if (out.createdAt == null && out.createdat != null) out.createdAt = out.createdat;
   if (out.groupCode == null && out.groupcode != null) out.groupCode = out.groupcode;
   if (out.groupId == null && out.groupid != null) out.groupId = out.groupid;
+  if (out.serverId == null && out.serverid != null) out.serverId = out.serverid;
+  if (out.channelId == null && out.channelid != null) out.channelId = out.channelid;
+  if (out.adminOnly == null && out.adminonly != null) out.adminOnly = !!out.adminonly;
+  if (out.iconUrl == null && out.iconurl != null) out.iconUrl = out.iconurl;
+  if (out.inviteCode == null && out.invitecode != null) out.inviteCode = out.invitecode;
   if (out.fromDisplayName == null && out.fromdisplayname != null) out.fromDisplayName = out.fromdisplayname;
   if (out.fromAvatarUrl == null && out.fromavatarurl != null) out.fromAvatarUrl = out.fromavatarurl;
 
@@ -124,6 +130,8 @@ async function initDb() {
 
     await pgPool.query("ALTER TABLE groups ADD COLUMN IF NOT EXISTS avatar_url TEXT");
 
+    await ensureServerSchema({ getAll, run, pgPool });
+
     return true;
   }
 
@@ -196,6 +204,8 @@ async function initDb() {
   const colNames = new Set(userCols.map((c) => c.name));
   if (!colNames.has("display_name")) sqliteDb.run("ALTER TABLE users ADD COLUMN display_name TEXT");
   if (!colNames.has("avatar_url")) sqliteDb.run("ALTER TABLE users ADD COLUMN avatar_url TEXT");
+
+  await ensureServerSchema({ getAll, run, pgPool: null });
 
   persist();
   return true;
@@ -290,5 +300,6 @@ module.exports = {
   run,
   generateUniquePublicId,
   generateUniqueGroupCode,
+  generateUniqueInviteCode: () => generateUniqueInviteCode(getOne),
 };
 

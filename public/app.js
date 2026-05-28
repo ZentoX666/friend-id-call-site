@@ -20,14 +20,12 @@ const meName = el("meName");
 const addFriendForm = el("addFriendForm");
 const addFriendMsg = el("addFriendMsg");
 const friendsList = el("friendsList");
-const createGroupForm = el("createGroupForm");
-const joinGroupForm = el("joinGroupForm");
-const groupMsg = el("groupMsg");
-const groupsList = el("groupsList");
 const serverIcons = el("serverIcons");
 const openServerModalBtn = el("openServerModalBtn");
 const closeServerModalBtn = el("closeServerModalBtn");
 const serverModal = el("serverModal");
+const serverVoicePanel = el("serverVoicePanel");
+const discordLayout = el("discordLayout");
 
 const chatWith = el("chatWith");
 const chatMessages = el("chatMessages");
@@ -71,15 +69,11 @@ const settingsDisplayName = el("settingsDisplayName");
 const settingsAvatarUrl = el("settingsAvatarUrl");
 const meIdPill = el("meIdPill");
 const mePublicId = el("mePublicId");
-const serverCallBtn = el("serverCallBtn");
 const serverSettingsModal = el("serverSettingsModal");
 const serverSettingsForm = el("serverSettingsForm");
-const serverSettingsId = el("serverSettingsId");
 const serverSettingsName = el("serverSettingsName");
-const serverSettingsAvatarUrl = el("serverSettingsAvatarUrl");
 const serverSettingsMsg = el("serverSettingsMsg");
 const closeServerSettingsBtn = el("closeServerSettingsBtn");
-const resetServerIdBtn = el("resetServerIdBtn");
 
 let socket = null;
 let me = null; // { publicId, email }
@@ -109,8 +103,6 @@ let ringBack = null;
 let callStartedAt = null;
 let callTimer = null;
 let outgoingNoAnswerTimer = null;
-let currentServer = null; // { groupCode, name, avatarUrl, isOwner }
-let serverContextMenu = null;
 
 function notificationsSupported() {
   return typeof window !== "undefined" && "Notification" in window;
@@ -218,8 +210,127 @@ function setMainTab(name) {
   mainSettingsTab?.classList.toggle("active", name === "settings");
 
   chatPanel?.classList.toggle("hidden", name !== "chat");
+  serverVoicePanel?.classList.toggle("hidden", name !== "voice");
   callPanel?.classList.toggle("hidden", name !== "call");
   settingsPanel?.classList.toggle("hidden", name !== "settings");
+}
+
+function appendChatMessages(messages, appendOnly) {
+  if (!chatMessages) return;
+  if (!appendOnly) chatMessages.innerHTML = "";
+  for (const m of messages) {
+    const b = document.createElement("div");
+    b.className = "chat-bubble" + (m.fromPublicId === me?.publicId ? " me" : "");
+    const meta = document.createElement("div");
+    meta.className = "meta mono";
+    meta.textContent = `${m.fromDisplayName || m.fromPublicId} • ${m.createdAt}`;
+    const body = document.createElement("div");
+    body.textContent = m.body;
+    b.appendChild(meta);
+    b.appendChild(body);
+    chatMessages.appendChild(b);
+  }
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function getVoiceStream() {
+  return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+}
+
+function initServersModule() {
+  const serverEls = {
+    discordLayout,
+    serverRail: el("serverRail"),
+    serverIcons,
+    homeBtn: el("homeBtn"),
+    channelSidebar: el("channelSidebar"),
+    channelServerName: el("channelServerName"),
+    textChannelsList: el("textChannelsList"),
+    voiceChannelsList: el("voiceChannelsList"),
+    addTextChannelBtn: el("addTextChannelBtn"),
+    addVoiceChannelBtn: el("addVoiceChannelBtn"),
+    serverSettingsBtn: el("serverSettingsBtn"),
+    openServerModalBtn,
+    serverModal,
+    createServerPanel: el("createServerPanel"),
+    addServerPanel: el("addServerPanel"),
+    createServerForm: el("createServerForm"),
+    addServerForm: el("addServerForm"),
+    serverModalMsg: el("serverModalMsg"),
+    closeServerModalBtn,
+    serverSettingsModal,
+    serverSettingsForm,
+    serverSettingsName,
+    serverSettingsIconUrl: el("serverSettingsIconUrl"),
+    serverSettingsMsg,
+    closeServerSettingsBtn,
+    inviteCodesBox: el("inviteCodesBox"),
+    inviteAdminCode: el("inviteAdminCode"),
+    inviteMemberCode: el("inviteMemberCode"),
+    mobileMenuBtn: el("mobileMenuBtn"),
+    mobileBackdrop: el("mobileBackdrop"),
+    mobileHeaderTitle: el("mobileHeaderTitle"),
+    mainTitle,
+    chatMsg,
+  };
+
+  ServersUI.init({
+    api,
+    socket,
+    me,
+    setMsg,
+    elements: serverEls,
+    onTextChannelMessages: (messages, appendOnly) => {
+      chatPeer = null;
+      const ch = ServersUI.getCurrentChannel();
+      if (chatWith) chatWith.textContent = ch ? `# ${ch.name}` : "-";
+      if (chatWrap && chatEmpty) {
+        chatWrap.classList.remove("hidden");
+        chatEmpty.classList.add("hidden");
+      }
+      appendChatMessages(messages, appendOnly);
+    },
+    onShowChatPanel: () => setMainTab("chat"),
+    onShowVoicePanel: () => setMainTab("voice"),
+    onGoHome: () => {
+      chatPeer = null;
+      if (mainTitle) mainTitle.textContent = "Selectează un prieten";
+      if (chatWrap && chatEmpty) {
+        chatWrap.classList.toggle("hidden", true);
+        chatEmpty.classList.toggle("hidden", false);
+      }
+      setMainTab("chat");
+    },
+  });
+
+  ServersUI.setChatPeerClear(() => {
+    chatPeer = null;
+  });
+
+  VoiceChannels.init({
+    socket,
+    me,
+    api,
+    getStream: getVoiceStream,
+    elements: {
+      voiceGrid: el("voiceGrid"),
+      voiceChannelName: el("voiceChannelName"),
+      voiceJoinBtn: el("voiceJoinBtn"),
+      voiceMicBtn: el("voiceMicBtn"),
+      voiceDeafenBtn: el("voiceDeafenBtn"),
+      voiceLeaveBtn: el("voiceLeaveBtn"),
+    },
+  });
+
+  document.querySelectorAll("[data-copy]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = el(btn.getAttribute("data-copy"));
+      if (!input?.value) return;
+      navigator.clipboard?.writeText(input.value).catch(() => {
+        input.select();
+      });
+    });
+  });
 }
 
 async function api(path, options = {}) {
@@ -344,26 +455,11 @@ function playBellMax() {
 }
 
 function renderChatMessages(messages) {
-  if (!chatMessages) return;
-  chatMessages.innerHTML = "";
-  for (const m of messages) {
-    const b = document.createElement("div");
-    b.className = "chat-bubble" + (m.fromPublicId === me?.publicId ? " me" : "");
-    const meta = document.createElement("div");
-    meta.className = "meta mono";
-    meta.textContent = `${m.fromDisplayName || m.fromPublicId} • ${m.createdAt}`;
-    const body = document.createElement("div");
-    body.textContent = m.body;
-    b.appendChild(meta);
-    b.appendChild(body);
-    chatMessages.appendChild(b);
-  }
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  appendChatMessages(messages, false);
 }
 
 async function openChatWith(friend) {
-  currentServer = null;
-  if (serverCallBtn) serverCallBtn.classList.add("hidden");
+  ServersUI?.selectHome();
   chatPeer = friend;
   if (chatWith) chatWith.textContent = friend ? `${friend.displayName || `User ${friend.publicId}`}` : "-";
   if (mainTitle) mainTitle.textContent = friend ? (friend.displayName || `User ${friend.publicId}`) : "Selectează un prieten";
@@ -385,62 +481,6 @@ async function openChatWith(friend) {
     const readable = code === "not_friends" ? "Nu mai sunteți prieteni." : "Nu am putut încărca chat-ul.";
     setMsg(chatMsg, readable, "error");
   }
-}
-
-function closeServerContextMenu() {
-  if (!serverContextMenu) return;
-  serverContextMenu.remove();
-  serverContextMenu = null;
-}
-
-function openServerContextMenu(evt, group) {
-  closeServerContextMenu();
-  const menu = document.createElement("div");
-  menu.className = "server-menu";
-  menu.style.left = `${evt.clientX}px`;
-  menu.style.top = `${evt.clientY}px`;
-  const settingsBtn = document.createElement("button");
-  settingsBtn.type = "button";
-  settingsBtn.textContent = "Server settings";
-  settingsBtn.addEventListener("click", () => {
-    closeServerContextMenu();
-    openServerSettings(group);
-  });
-  menu.appendChild(settingsBtn);
-  document.body.appendChild(menu);
-  serverContextMenu = menu;
-}
-
-async function openServerChat(group) {
-  currentServer = group;
-  chatPeer = null;
-  if (serverCallBtn) serverCallBtn.classList.remove("hidden");
-  if (mainTitle) mainTitle.textContent = `${group.name} • ${group.groupCode}`;
-  if (chatWith) chatWith.textContent = `# ${group.name}`;
-  if (chatWrap && chatEmpty) {
-    chatWrap.classList.remove("hidden");
-    chatEmpty.classList.add("hidden");
-  }
-  setMainTab("chat");
-  try {
-    setMsg(chatMsg, "Se încarcă server chat...");
-    const data = await api(`/api/groups/${group.groupCode}/messages`);
-    renderChatMessages(data.messages || []);
-    setMsg(chatMsg, "");
-  } catch (err) {
-    setMsg(chatMsg, err?.data?.error || "error", "error");
-  }
-}
-
-function openServerSettings(group) {
-  if (!group) return;
-  currentServer = group;
-  if (serverSettingsId) serverSettingsId.textContent = group.groupCode || "-";
-  if (serverSettingsName) serverSettingsName.value = group.name || "";
-  if (serverSettingsAvatarUrl) serverSettingsAvatarUrl.value = group.avatarUrl || "";
-  if (resetServerIdBtn) resetServerIdBtn.classList.toggle("hidden", !group.isOwner);
-  if (serverSettingsMsg) serverSettingsMsg.textContent = "";
-  serverSettingsModal?.classList.remove("hidden");
 }
 
 function ensureRingers() {
@@ -544,6 +584,8 @@ async function refreshMe() {
     return;
   }
   me = data.user;
+  ServersUI?.setMe(me);
+  VoiceChannels?.setMe(me);
   if (meIdPill) meIdPill.textContent = String(me.publicId || "");
   if (mePublicId) mePublicId.textContent = `ID: ${String(me.publicId || "-")}`;
   if (meName) meName.textContent = me.displayName || computeAvatar(me.email, me.displayName);
@@ -672,41 +714,12 @@ async function refreshMe() {
       }
     });
 
-    socket.on("group:message", ({ groupCode, message }) => {
-      if (currentServer && currentServer.groupCode === groupCode) {
-        const b = document.createElement("div");
-        b.className = "chat-bubble" + (message.fromPublicId === me?.publicId ? " me" : "");
-        const meta = document.createElement("div");
-        meta.className = "meta mono";
-        meta.textContent = `${message.fromDisplayName || message.fromPublicId} • ${message.createdAt}`;
-        const body = document.createElement("div");
-        body.textContent = message.body;
-        b.appendChild(meta);
-        b.appendChild(body);
-        chatMessages?.appendChild(b);
-        if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
-      } else if (document.hidden && message.fromPublicId !== me?.publicId) {
-        showNotification("Server message", `${message.fromDisplayName || message.fromPublicId}: ${String(message.body || "").slice(0, 80)}`);
-      }
-    });
-
-    socket.on("group:incoming_call", ({ groupCode, groupName, fromPublicId }) => {
-      if (document.hidden) showNotification("Server call", `${fromPublicId} started a call in ${groupName}`);
-      setMsg(callMsg, `Server call in ${groupName} by ${fromPublicId}`, "muted");
-      if (currentServer && currentServer.groupCode === groupCode) setMainTab("call");
-    });
-
-    socket.on("group:code_reset", ({ oldGroupCode, newGroupCode }) => {
-      if (currentServer && currentServer.groupCode === oldGroupCode) {
-        currentServer.groupCode = newGroupCode;
-        if (mainTitle) mainTitle.textContent = `${currentServer.name} • ${newGroupCode}`;
-      }
-      refreshGroups().catch(() => {});
-    });
   }
 
+  ServersUI?.setSocket(socket);
+  VoiceChannels?.setSocket(socket);
   await refreshFriends();
-  await refreshGroups();
+  await ServersUI?.loadServers();
 }
 
 async function refreshFriends() {
@@ -773,55 +786,6 @@ async function refreshFriends() {
       row.classList.add("active");
       openChatWith(f);
     });
-  }
-}
-
-async function refreshGroups() {
-  if (!serverIcons && !groupsList) return;
-  const data = await api("/api/groups");
-  if (groupsList) groupsList.innerHTML = "";
-  if (serverIcons) serverIcons.innerHTML = "";
-  if (!data.groups?.length) {
-    if (groupsList) {
-      const empty = document.createElement("div");
-      empty.className = "muted";
-      empty.textContent = "Nu ești în niciun grup.";
-      groupsList.appendChild(empty);
-    }
-    return;
-  }
-  for (const g of data.groups) {
-    if (groupsList) {
-      const item = document.createElement("div");
-      item.className = "group-item";
-      const name = document.createElement("div");
-      name.className = "group-name";
-      name.textContent = g.name || "Group";
-      const code = document.createElement("div");
-      code.className = "mono muted";
-      code.textContent = `ID: ${g.groupCode}`;
-      item.appendChild(name);
-      item.appendChild(code);
-      groupsList.appendChild(item);
-    }
-
-    if (serverIcons) {
-      const icon = document.createElement("button");
-      icon.type = "button";
-      icon.className = "server-icon";
-      icon.title = `${g.name} (${g.groupCode})`;
-      icon.textContent = (g.name || "S").slice(0, 1).toUpperCase();
-      icon.addEventListener("click", () => {
-        openServerChat(g);
-        document.querySelectorAll(".server-icon.active").forEach((n) => n.classList.remove("active"));
-        icon.classList.add("active");
-      });
-      icon.addEventListener("contextmenu", (evt) => {
-        evt.preventDefault();
-        openServerContextMenu(evt, g);
-      });
-      serverIcons.appendChild(icon);
-    }
   }
 }
 
@@ -1125,52 +1089,12 @@ addFriendForm.addEventListener("submit", async (e) => {
   }
 });
 
-createGroupForm?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  setMsg(groupMsg, "Creating...");
-  const form = new FormData(createGroupForm);
-  const name = String(form.get("groupName") || "").trim();
-  if (!name || name.length > 80) {
-    setMsg(groupMsg, "Nume grup invalid.", "error");
-    return;
-  }
-  try {
-    const data = await api("/api/groups/create", { method: "POST", body: JSON.stringify({ name }) });
-    setMsg(groupMsg, `Created. Group ID: ${data.group.groupCode}`);
-    createGroupForm.reset();
-    serverModal?.classList.add("hidden");
-    await refreshGroups();
-  } catch (err) {
-    const code = err?.data?.error || "error";
-    setMsg(groupMsg, code, "error");
-  }
-});
-
-joinGroupForm?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  setMsg(groupMsg, "Joining...");
-  const form = new FormData(joinGroupForm);
-  const groupCode = String(form.get("groupCode") || "").trim();
-  if (!/^\d{10,15}$/.test(groupCode)) {
-    setMsg(groupMsg, "Group ID invalid (10-15 cifre).", "error");
-    return;
-  }
-  try {
-    await api("/api/groups/join", { method: "POST", body: JSON.stringify({ groupCode }) });
-    setMsg(groupMsg, "Joined.");
-    joinGroupForm.reset();
-    serverModal?.classList.add("hidden");
-    await refreshGroups();
-  } catch (err) {
-    const code = err?.data?.error || "error";
-    setMsg(groupMsg, code, "error");
-  }
-});
-
 chatForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (!chatPeer && !currentServer) {
-    setMsg(chatMsg, "Selectează un prieten sau server.", "error");
+  const serverChannel = ServersUI?.getCurrentChannel();
+  const server = ServersUI?.getCurrentServer();
+  if (!chatPeer && !serverChannel) {
+    setMsg(chatMsg, "Selectează un prieten sau un canal text.", "error");
     return;
   }
   const body = String(chatInput?.value || "").trim();
@@ -1180,15 +1104,13 @@ chatForm?.addEventListener("submit", async (e) => {
     return;
   }
   try {
-    const data = currentServer
-      ? await api(`/api/groups/${currentServer.groupCode}/messages/send`, {
-          method: "POST",
-          body: JSON.stringify({ body }),
-        })
-      : await api("/api/messages/send", {
-          method: "POST",
-          body: JSON.stringify({ toPublicId: chatPeer.publicId, body }),
-        });
+    const data =
+      server && serverChannel?.type === "text"
+        ? await ServersUI.sendChannelMessage(body)
+        : await api("/api/messages/send", {
+            method: "POST",
+            body: JSON.stringify({ toPublicId: chatPeer.publicId, body }),
+          });
     chatInput.value = "";
     setMsg(chatMsg, "");
     // append my own message immediately
@@ -1245,23 +1167,6 @@ mainCallTab?.addEventListener("click", () => setMainTab("call"));
 mainSettingsTab?.addEventListener("click", () => setMainTab("settings"));
 openSettingsBtn?.addEventListener("click", () => setMainTab("settings"));
 enableNotificationsBtn?.addEventListener("click", () => requestNotificationsPermission());
-openServerModalBtn?.addEventListener("click", () => serverModal?.classList.remove("hidden"));
-closeServerModalBtn?.addEventListener("click", () => serverModal?.classList.add("hidden"));
-serverModal?.addEventListener("click", (e) => {
-  if (e.target === serverModal) serverModal.classList.add("hidden");
-});
-document.addEventListener("click", () => closeServerContextMenu());
-serverCallBtn?.addEventListener("click", () => {
-  if (!socket || !currentServer) return;
-  socket.emit("group:call", { groupCode: currentServer.groupCode });
-  setMsg(callMsg, `Server call started in ${currentServer.name}.`, "muted");
-  setMainTab("call");
-});
-closeServerSettingsBtn?.addEventListener("click", () => serverSettingsModal?.classList.add("hidden"));
-serverSettingsModal?.addEventListener("click", (e) => {
-  if (e.target === serverSettingsModal) serverSettingsModal.classList.add("hidden");
-});
-
 settingsForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   setMsg(settingsMsg, "Salvez...");
@@ -1279,43 +1184,13 @@ settingsForm?.addEventListener("submit", async (e) => {
   }
 });
 
-serverSettingsForm?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if (!currentServer) return;
-  setMsg(serverSettingsMsg, "Saving...");
-  const form = new FormData(serverSettingsForm);
-  const name = String(form.get("name") || "").trim();
-  const avatarUrl = String(form.get("avatarUrl") || "").trim();
-  try {
-    const data = await api(`/api/groups/${currentServer.groupCode}/settings`, {
-      method: "POST",
-      body: JSON.stringify({ name, avatarUrl }),
-    });
-    currentServer = { ...currentServer, ...data.group };
-    setMsg(serverSettingsMsg, "Saved.");
-    await refreshGroups();
-    if (mainTitle && currentServer) mainTitle.textContent = `${currentServer.name} • ${currentServer.groupCode}`;
-  } catch (err) {
-    setMsg(serverSettingsMsg, err?.data?.error || "error", "error");
-  }
-});
-
-resetServerIdBtn?.addEventListener("click", async () => {
-  if (!currentServer) return;
-  setMsg(serverSettingsMsg, "Resetting ID...");
-  try {
-    const data = await api(`/api/groups/${currentServer.groupCode}/reset-id`, { method: "POST", body: JSON.stringify({}) });
-    currentServer.groupCode = data.groupCode;
-    if (serverSettingsId) serverSettingsId.textContent = data.groupCode;
-    setMsg(serverSettingsMsg, "ID reset. Non-owner members were removed.");
-    await refreshGroups();
-    if (mainTitle) mainTitle.textContent = `${currentServer.name} • ${currentServer.groupCode}`;
-  } catch (err) {
-    setMsg(serverSettingsMsg, err?.data?.error || "error", "error");
-  }
-});
+function reauthSocket() {
+  if (socket && me?.publicId) socket.emit("auth", { publicId: me.publicId });
+}
+window.reauthSocket = reauthSocket;
 
 // Initialize UI defaults
+initServersModule();
 setRemoteVolumePercent(100);
 setRemoteMuted(false);
 setMicMuted(false);

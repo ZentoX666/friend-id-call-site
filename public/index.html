@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/css/servers.css" />
   </head>
   <body>
     <div class="container">
@@ -54,32 +55,43 @@
       </div>
 
       <div id="appView" class="hidden">
-        <div class="app-frame">
-          <aside class="server-rail">
-            <button id="openServerModalBtn" class="server-plus" type="button" title="Add server">+</button>
+        <div id="mobileBackdrop" class="mobile-backdrop"></div>
+        <header class="mobile-header">
+          <button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="Meniu">☰</button>
+          <span id="mobileHeaderTitle" class="mobile-header-title">Mesaje directe</span>
+        </header>
+
+        <div id="discordLayout" class="discord-layout view-home">
+          <nav class="server-rail" id="serverRail">
+            <button id="homeBtn" class="server-icon home-icon active" type="button" title="Mesaje directe">🏠</button>
             <div id="serverIcons" class="server-icons"></div>
+            <button id="openServerModalBtn" class="server-plus" type="button" title="Servere">+</button>
+          </nav>
+
+          <aside id="channelSidebar" class="channel-sidebar hidden">
+            <div class="channel-sidebar-header">
+              <h2 id="channelServerName">Server</h2>
+              <button id="serverSettingsBtn" class="btn btn-ghost btn-icon" type="button" title="Setări server">⚙</button>
+            </div>
+            <div class="channel-scroll">
+              <div class="channel-section">
+                <div class="channel-section-head">
+                  <span>CANALE TEXT</span>
+                  <button id="addTextChannelBtn" class="channel-add hidden" type="button" title="Canal text">+</button>
+                </div>
+                <div id="textChannelsList"></div>
+              </div>
+              <div class="channel-section">
+                <div class="channel-section-head">
+                  <span>CANALE VOICE</span>
+                  <button id="addVoiceChannelBtn" class="channel-add hidden" type="button" title="Canal voice">+</button>
+                </div>
+                <div id="voiceChannelsList"></div>
+              </div>
+            </div>
           </aside>
 
-          <div id="serverModal" class="modal hidden">
-            <div class="modal-card">
-              <h3>Add server</h3>
-              <form id="createGroupForm" class="form">
-                <label>Create server</label>
-                <input name="groupName" autocomplete="off" placeholder="Server name" required />
-                <button class="btn" type="submit">Create</button>
-              </form>
-              <form id="joinGroupForm" class="form">
-                <label>Join server by ID</label>
-                <input name="groupCode" inputmode="numeric" autocomplete="off" placeholder="ID 10-15 digits" required />
-                <button class="btn btn-ghost" type="submit">Join</button>
-              </form>
-              <div class="hint" id="groupMsg"></div>
-              <button id="closeServerModalBtn" class="btn btn-ghost" type="button">Close</button>
-            </div>
-          </div>
-
-          <div class="app-shell">
-          <aside class="sidebar">
+          <aside id="dmSidebar" class="dm-sidebar">
             <div class="me-card">
               <button id="avatarBtn" class="avatar" title="Profil">
                 <img id="avatarImg" class="avatar-img hidden" alt="avatar" />
@@ -106,19 +118,34 @@
               <div class="sidebar-title muted">Prieteni</div>
               <div id="friendsList" class="friends"></div>
             </div>
-
           </aside>
 
+          <div class="discord-main" id="discordMain">
           <main class="main">
             <div class="main-header">
               <div class="main-title mono" id="mainTitle">Selectează un prieten</div>
               <div class="main-actions">
-                <button id="serverCallBtn" class="tab2 hidden" type="button">Server Call</button>
                 <button id="mainChatTab" class="tab2 active" type="button">Chat</button>
                 <button id="mainCallTab" class="tab2" type="button">Apel</button>
                 <button id="mainSettingsTab" class="tab2" type="button">Setări</button>
               </div>
             </div>
+
+            <section id="serverVoicePanel" class="panel hidden">
+              <div class="voice-panel">
+                <div class="voice-panel-header">
+                  <h3 id="voiceChannelName" class="neon-glow-green">Voice</h3>
+                  <p class="muted">Conectează-te pentru a vorbi cu ceilalți din canal.</p>
+                </div>
+                <div id="voiceGrid" class="voice-panel-grid"></div>
+                <div class="voice-panel-controls">
+                  <button id="voiceJoinBtn" class="voice-ctrl join-btn" type="button">Intră în voice</button>
+                  <button id="voiceMicBtn" class="voice-ctrl" type="button" title="Microfon">🎤</button>
+                  <button id="voiceDeafenBtn" class="voice-ctrl" type="button" title="Deafen">🎧</button>
+                  <button id="voiceLeaveBtn" class="voice-ctrl join-btn btn-danger hidden" type="button">Părăsește</button>
+                </div>
+              </div>
+            </section>
 
             <section id="chatPanel" class="panel">
               <div id="incomingCallBanner" class="incoming-call hidden neon-border-green">
@@ -227,26 +254,61 @@
               </div>
             </section>
           </main>
-          <div id="serverSettingsModal" class="modal hidden">
-            <div class="modal-card">
-              <h3>Server settings</h3>
-              <div class="pill">
-                <span class="muted">Server ID</span>
-                <span id="serverSettingsId" class="mono"></span>
-              </div>
-              <form id="serverSettingsForm" class="form">
-                <label>Server name</label>
-                <input id="serverSettingsName" name="name" maxlength="80" required />
-                <label>Server avatar URL</label>
-                <input id="serverSettingsAvatarUrl" name="avatarUrl" maxlength="500" placeholder="https://..." />
-                <button class="btn" type="submit">Save server</button>
-              </form>
-              <button id="resetServerIdBtn" class="btn btn-danger" type="button">Reset ID (kick all non-owner)</button>
-              <div class="hint" id="serverSettingsMsg"></div>
-              <button id="closeServerSettingsBtn" class="btn btn-ghost" type="button">Close</button>
-            </div>
           </div>
         </div>
+
+        <div id="serverModal" class="modal hidden">
+          <div class="modal-card neon-border-green">
+            <h3 class="neon-glow-green">Servere</h3>
+            <div class="server-modal-tabs">
+              <button type="button" class="server-modal-tab active" data-mode="create">Create Server</button>
+              <button type="button" class="server-modal-tab" data-mode="add">Add Server</button>
+            </div>
+            <div id="createServerPanel">
+              <form id="createServerForm" class="form">
+                <label>Nume server</label>
+                <input name="serverName" autocomplete="off" placeholder="ex: TakeInfo Squad" maxlength="80" required />
+                <button class="btn" type="submit">Create Server</button>
+              </form>
+            </div>
+            <div id="addServerPanel" class="hidden">
+              <form id="addServerForm" class="form">
+                <label>Cod invite (min. 10 caractere)</label>
+                <input name="inviteCode" autocomplete="off" placeholder="Cod admin sau member" minlength="10" required />
+                <button class="btn" type="submit">Add Server</button>
+              </form>
+            </div>
+            <div class="hint" id="serverModalMsg"></div>
+            <button id="closeServerModalBtn" class="btn btn-ghost" type="button">Închide</button>
+          </div>
+        </div>
+
+        <div id="serverSettingsModal" class="modal hidden">
+          <div class="modal-card">
+            <h3>Setări server</h3>
+            <form id="serverSettingsForm" class="form">
+              <label>Nume server</label>
+              <input id="serverSettingsName" name="name" maxlength="80" required />
+              <label>Icon URL</label>
+              <input id="serverSettingsIconUrl" name="iconUrl" maxlength="500" placeholder="https://..." />
+              <button class="btn" type="submit">Salvează</button>
+            </form>
+            <div id="inviteCodesBox" class="invite-codes-box hidden">
+              <p class="muted">Coduri invite (doar admin)</p>
+              <label>Admin</label>
+              <div class="invite-code-row">
+                <input id="inviteAdminCode" type="text" readonly />
+                <button type="button" class="btn btn-ghost" data-copy="inviteAdminCode">Copiază</button>
+              </div>
+              <label>Member</label>
+              <div class="invite-code-row">
+                <input id="inviteMemberCode" type="text" readonly />
+                <button type="button" class="btn btn-ghost" data-copy="inviteMemberCode">Copiază</button>
+              </div>
+            </div>
+            <div class="hint" id="serverSettingsMsg"></div>
+            <button id="closeServerSettingsBtn" class="btn btn-ghost" type="button">Închide</button>
+          </div>
         </div>
       </div>
     </div>
@@ -254,6 +316,8 @@
     <div class="madeBy">TAKEINFO · CYBER DISCORD</div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/voice-channels.js"></script>
+    <script src="/js/servers.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

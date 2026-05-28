@@ -7,7 +7,9 @@ const express = require("express");
 const session = require("express-session");
 const { Server } = require("socket.io");
 
-const { initDb, getOne, getAll, run, generateUniquePublicId, generateUniqueGroupCode } = require("./db");
+const { initDb, getOne, getAll, run, generateUniquePublicId, generateUniqueGroupCode, generateUniqueInviteCode } = require("./db");
+const { registerServerRoutes } = require("./lib/servers-routes");
+const { createVoicePresence } = require("./lib/voice-presence");
 
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-insecure-secret";
@@ -31,6 +33,10 @@ async function main() {
   );
 
   app.use(express.static(path.join(__dirname, "public")));
+
+  registerServerRoutes(app, { getOne, getAll, run, generateUniqueInviteCode }, io);
+  const voicePresence = createVoicePresence();
+  voicePresence.attachSocketHandlers(io, { getOne, getAll });
 
   app.get("/healthz", (req, res) => {
     res.status(200).send("ok");
@@ -464,6 +470,11 @@ async function main() {
           [user.id]
         );
         for (const g of groups) socket.join(`group:${g.groupId}`);
+        const servers = await getAll(
+          "SELECT server_id AS serverId FROM server_members WHERE user_id = ?",
+          [user.id]
+        );
+        for (const s of servers) socket.join(`server:${s.serverId}`);
         socket.emit("presence:ready", { ok: true });
       } catch {
         // ignore

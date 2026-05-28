@@ -33,6 +33,7 @@
     "files": [
       "electron/**/*",
       "public/**/*",
+      "lib/**/*",
       "server.js",
       "db.js",
       "package.json",
