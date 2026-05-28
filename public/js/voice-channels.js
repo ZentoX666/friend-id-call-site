@@ -4,7 +4,6 @@
 window.VoiceChannels = (function () {
   let socket = null;
   let me = null;
-  let api = null;
   let getStream = null;
 
   let activeServerId = null;
@@ -12,31 +11,42 @@ window.VoiceChannels = (function () {
   let localStream = null;
   let micMuted = false;
   let deafened = false;
+  let statusText = "";
 
-  /** @type {Map<number, { pc: RTCPeerConnection, audio: HTMLAudioElement }>} */
+  /** @type {Map<number, { pc: RTCPeerConnection, audio: HTMLAudioElement, iceQueue: object[] }>} */
   const peers = new Map();
   let voiceState = {};
 
   const els = {};
 
+  const ICE_SERVERS = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+  ];
+
   function init(deps) {
     socket = deps.socket;
     me = deps.me;
-    api = deps.api;
     getStream = deps.getStream;
     Object.assign(els, deps.elements);
     bindSocket();
     bindControls();
   }
 
+  function setStatus(text) {
+    statusText = text || "";
+    if (els.voiceStatus) els.voiceStatus.textContent = statusText;
+  }
+
   function bindControls() {
     els.voiceJoinBtn?.addEventListener("click", () => {
-      if (activeChannelId) leaveChannel();
+      if (isInVoice()) leaveChannel();
       else joinCurrentChannel();
     });
     els.voiceMicBtn?.addEventListener("click", toggleMic);
     els.voiceDeafenBtn?.addEventListener("click", toggleDeafen);
-    els.voiceLeaveBtn?.addEventListener("click", leaveChannel);
+    els.voiceLeaveBtn?.addEventListener("click", () => leaveChannel());
   }
 
   function bindSocket() {
@@ -91,14 +101,18 @@ window.VoiceChannels = (function () {
     renderParticipants();
   }
 
+  function isInVoice() {
+    if (!activeChannelId || !me?.publicId) return false;
+    const users = usersInChannel(activeChannelId);
+    return users.some((u) => Number(u.publicId) === Number(me.publicId));
+  }
+
   function updateJoinButton() {
     if (!els.voiceJoinBtn) return;
-    const inChannel =
-      activeChannelId &&
-      voiceState[String(activeChannelId)]?.some((u) => Number(u.publicId) === Number(me?.publicId));
-    els.voiceJoinBtn.textContent = inChannel ? "Părăsește voice" : "Intră în voice";
-    els.voiceJoinBtn.classList.toggle("btn-danger", !!inChannel);
-    els.voiceLeaveBtn?.classList.toggle("hidden", !inChannel);
+    const inCh = isInVoice();
+    els.voiceJoinBtn.textContent = inCh ? "Părăsește voice" : "Intră în voice";
+    els.voiceJoinBtn.classList.toggle("btn-danger", inCh);
+    els.voiceLeaveBtn?.classList.toggle("hidden", !inCh);
   }
 
   function usersInChannel(channelId) {
@@ -108,17 +122,32 @@ window.VoiceChannels = (function () {
   async function ensureLocalStream() {
     if (localStream) return localStream;
     if (getStream) localStream = await getStream();
-    else localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    else {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+    }
     return localStream;
   }
 
   async function joinCurrentChannel() {
-    if (!socket || !activeServerId || !activeChannelId) return;
+    if (!socket || !activeServerId || !activeChannelId) {
+      setStatus("Selectează un canal voice.");
+      return;
+    }
+    if (!socket.connected) {
+      setStatus("Socket neconectat. Reîncarcă pagina.");
+      return;
+    }
     try {
+      setStatus("Conectare la voice...");
       await ensureLocalStream();
       applyMicMute();
       socket.emit("voice:join", { serverId: activeServerId, channelId: activeChannelId });
-    } catch {
+      setStatus("Conectat. Așteaptă alți utilizatori...");
+    } catch (err) {
+      setStatus("");
       alert("Permite accesul la microfon pentru voice.");
     }
   }
@@ -126,6 +155,7 @@ window.VoiceChannels = (function () {
   function leaveChannel(emit = true) {
     if (emit && socket && activeServerId) socket.emit("voice:leave");
     closeAllPeers();
+    setStatus("");
     updateJoinButton();
     renderParticipants();
   }
@@ -166,19 +196,22 @@ window.VoiceChannels = (function () {
 
   function createPeer(publicId) {
     if (peers.has(publicId)) return peers.get(publicId);
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     const audio = document.createElement("audio");
     audio.autoplay = true;
     audio.playsInline = true;
     audio.muted = deafened;
-    audio.style.display = "none";
+    audio.setAttribute("playsinline", "true");
     document.body.appendChild(audio);
 
+    const entry = { pc, audio, iceQueue: [] };
+
     pc.ontrack = (e) => {
-      audio.srcObject = e.streams[0];
+      const stream = e.streams[0] || new MediaStream([e.track]);
+      audio.srcObject = stream;
+      audio.play().catch(() => {});
     };
+
     pc.onicecandidate = (e) => {
       if (!e.candidate || !socket) return;
       socket.emit("voice:signal", {
@@ -194,9 +227,21 @@ window.VoiceChannels = (function () {
       for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
     }
 
-    const entry = { pc, audio };
     peers.set(publicId, entry);
     return entry;
+  }
+
+  async function flushIce(publicId) {
+    const p = peers.get(publicId);
+    if (!p || !p.pc.remoteDescription) return;
+    while (p.iceQueue.length) {
+      const c = p.iceQueue.shift();
+      try {
+        await p.pc.addIceCandidate(c);
+      } catch {
+        // ignore
+      }
+    }
   }
 
   async function syncPeersForChannel() {
@@ -211,6 +256,8 @@ window.VoiceChannels = (function () {
       closeAllPeers();
       return;
     }
+
+    setStatus(users.length > 1 ? "În apel voice cu alții." : "Ești singur în canal. Așteaptă pe cineva.");
 
     const remoteIds = new Set(users.map((u) => Number(u.publicId)).filter((id) => id !== myPid));
 
@@ -239,10 +286,11 @@ window.VoiceChannels = (function () {
   }
 
   async function handleOffer(fromPublicId, offer) {
-    const { pc } = createPeer(fromPublicId);
-    await pc.setRemoteDescription(offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    const entry = createPeer(fromPublicId);
+    await entry.pc.setRemoteDescription(offer);
+    await flushIce(fromPublicId);
+    const answer = await entry.pc.createAnswer();
+    await entry.pc.setLocalDescription(answer);
     socket.emit("voice:signal", {
       serverId: activeServerId,
       channelId: activeChannelId,
@@ -256,15 +304,20 @@ window.VoiceChannels = (function () {
     const p = peers.get(fromPublicId);
     if (!p) return;
     await p.pc.setRemoteDescription(answer);
+    await flushIce(fromPublicId);
   }
 
   async function handleIce(fromPublicId, candidate) {
     const p = peers.get(fromPublicId);
     if (!p) return;
+    if (!p.pc.remoteDescription) {
+      p.iceQueue.push(candidate);
+      return;
+    }
     try {
       await p.pc.addIceCandidate(candidate);
     } catch {
-      // ignore
+      p.iceQueue.push(candidate);
     }
   }
 
@@ -275,7 +328,7 @@ window.VoiceChannels = (function () {
     const users = usersInChannel(activeChannelId);
     for (const u of users) {
       const card = document.createElement("div");
-      card.className = "voice-participant-card";
+      card.className = "voice-participant-card" + (Number(u.publicId) === Number(me?.publicId) ? " me" : "");
       const av = document.createElement("div");
       av.className = "voice-participant-avatar";
       if (u.avatarUrl) {
@@ -288,6 +341,7 @@ window.VoiceChannels = (function () {
       }
       const name = document.createElement("div");
       name.textContent = u.displayName || `User ${u.publicId}`;
+      if (Number(u.publicId) === Number(me?.publicId)) name.textContent += " (tu)";
       card.appendChild(av);
       card.appendChild(name);
       els.voiceGrid.appendChild(card);
@@ -300,10 +354,9 @@ window.VoiceChannels = (function () {
     setSocket,
     setActiveServer,
     setActiveChannel,
+    joinCurrentChannel,
     leaveChannel,
+    isInVoice,
     getVoiceState: () => voiceState,
-    isInVoice: () =>
-      activeChannelId &&
-      usersInChannel(activeChannelId).some((u) => Number(u.publicId) === Number(me?.publicId)),
   };
 })();

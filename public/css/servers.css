@@ -5,9 +5,11 @@
   grid-template-columns: 72px 260px 300px 1fr;
   grid-template-rows: 1fr;
   gap: 0;
-  min-height: calc(100vh - 120px);
+  flex: 1;
+  min-height: 0;
   max-width: 100%;
   position: relative;
+  overflow: hidden;
 }
 
 .discord-layout.view-home {
@@ -15,6 +17,17 @@
 }
 .discord-layout.view-home .channel-sidebar {
   display: none !important;
+}
+
+/* Server focus: hide DMs, use full width for server */
+body.server-focus .discord-layout.view-server {
+  grid-template-columns: 72px 260px 1fr;
+}
+body.server-focus .discord-layout.view-server .dm-sidebar {
+  display: none !important;
+}
+body.server-focus .discord-layout.view-server .discord-main {
+  grid-column: 3;
 }
 
 .mobile-header {
@@ -386,7 +399,7 @@
     margin: 0;
   }
   .madeBy {
-    display: none;
+    margin-bottom: 12px;
   }
 
   .discord-layout,

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cyber Discord · Friend ID Call</title>
+    <title>TakeInfo</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
@@ -12,7 +12,7 @@
   <body>
     <div class="container">
       <div class="topbar">
-        <div class="brand neon-glow-green">Cyber Discord</div>
+        <div class="brand neon-glow-green">TakeInfo</div>
         <div class="topbar-actions">
           <button id="enableNotificationsBtn" class="btn btn-ghost hidden" type="button">Enable notifications</button>
           <button id="logoutBtn" class="btn btn-ghost hidden">Logout</button>
@@ -63,7 +63,15 @@
 
         <div id="discordLayout" class="discord-layout view-home">
           <nav class="server-rail" id="serverRail">
-            <button id="homeBtn" class="server-icon home-icon active" type="button" title="Mesaje directe">🏠</button>
+            <button id="homeBtn" class="server-icon home-icon active" type="button" title="Mesaje directe">
+              <img
+                class="home-icon-img"
+                src="https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcRxO5Ye3_b9XMCAsA7dYf_-cFbt8g6PD7lUlxkm8jE-_X-Ztqmv"
+                alt="TakeInfo"
+                width="46"
+                height="46"
+              />
+            </button>
             <div id="serverIcons" class="server-icons"></div>
             <button id="openServerModalBtn" class="server-plus" type="button" title="Servere">+</button>
           </nav>
@@ -122,11 +130,10 @@
 
           <div class="discord-main" id="discordMain">
           <main class="main">
-            <div class="main-header">
+            <div class="main-header" id="mainHeader">
               <div class="main-title mono" id="mainTitle">Selectează un prieten</div>
-              <div class="main-actions">
+              <div class="main-actions" id="mainHeaderTabs">
                 <button id="mainChatTab" class="tab2 active" type="button">Chat</button>
-                <button id="mainCallTab" class="tab2" type="button">Apel</button>
                 <button id="mainSettingsTab" class="tab2" type="button">Setări</button>
               </div>
             </div>
@@ -135,7 +142,7 @@
               <div class="voice-panel">
                 <div class="voice-panel-header">
                   <h3 id="voiceChannelName" class="neon-glow-green">Voice</h3>
-                  <p class="muted">Conectează-te pentru a vorbi cu ceilalți din canal.</p>
+                  <p id="voiceStatus" class="muted mono">Intră automat când deschizi canalul voice.</p>
                 </div>
                 <div id="voiceGrid" class="voice-panel-grid"></div>
                 <div class="voice-panel-controls">
@@ -313,7 +320,56 @@
       </div>
     </div>
 
-    <div class="madeBy">TAKEINFO · CYBER DISCORD</div>
+    <div class="madeBy">OFFICIAL MAISTERS PARTENER</div>
+
+    <div id="callOverlay" class="call-overlay hidden" aria-hidden="true">
+      <div class="call-overlay-backdrop"></div>
+      <div class="call-overlay-content neon-border-green-heavy">
+        <div id="callOverlayIncoming" class="call-overlay-incoming hidden">
+          <div class="wave-bars" aria-hidden="true">
+            <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
+          </div>
+          <h2 id="callOverlayIncomingText" class="incoming-title neon-glow-green">Apel primit</h2>
+          <div class="call-overlay-stage call-overlay-stage--incoming">
+            <div class="call-avatar-xl" id="callOverlayRemoteAvatar">?</div>
+          </div>
+          <div class="call-overlay-actions">
+            <button id="overlayAcceptBtn" class="button-accept" type="button">RĂSPUNDE</button>
+            <button id="overlayDeclineBtn" class="btn incoming-decline" type="button">Respinge</button>
+          </div>
+        </div>
+        <div id="callOverlayActive" class="call-overlay-active hidden">
+          <div class="call-overlay-top">
+            <span id="callOverlayDuration" class="mono">00:00</span>
+            <span id="callOverlayStatus" class="muted">În apel</span>
+          </div>
+          <div class="call-overlay-stage">
+            <div class="call-participant-tile">
+              <div class="call-avatar-xl" id="callOverlayRemoteAvatarActive">?</div>
+              <div class="call-participant-name" id="callOverlayRemoteName">Prieten</div>
+              <div class="wave-bars small" aria-hidden="true">
+                <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
+              </div>
+            </div>
+            <div class="call-participant-tile me-tile">
+              <div class="call-avatar-xl" id="callOverlayLocalAvatar">?</div>
+              <div class="call-participant-name" id="callOverlayLocalName">Tu</div>
+            </div>
+          </div>
+          <div class="call-overlay-controls">
+            <button id="overlayMicBtn" class="voice-ctrl" type="button" title="Microfon">🎤</button>
+            <button id="overlayRemoteMuteBtn" class="voice-ctrl" type="button" title="Deafen">🎧</button>
+            <button id="overlayHangupBtn" class="voice-ctrl hangup" type="button" title="Închide">📵</button>
+          </div>
+        </div>
+        <div id="callOverlayCalling" class="call-overlay-calling hidden">
+          <div class="call-avatar-xl pulse" id="callOverlayCallingAvatar">?</div>
+          <h2 id="callOverlayCallingName" class="neon-glow-green">Sună...</h2>
+          <p class="muted mono" id="callOverlayCallingStatus">calling</p>
+          <button id="overlayCancelCallBtn" class="btn btn-danger" type="button">Anulează</button>
+        </div>
+      </div>
+    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="/js/voice-channels.js"></script>

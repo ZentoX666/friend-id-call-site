@@ -52,8 +52,11 @@ const chatPanel = el("chatPanel");
 const callPanel = el("callPanel");
 const settingsPanel = el("settingsPanel");
 const mainChatTab = el("mainChatTab");
-const mainCallTab = el("mainCallTab");
 const mainSettingsTab = el("mainSettingsTab");
+const callOverlay = el("callOverlay");
+const callOverlayIncoming = el("callOverlayIncoming");
+const callOverlayActive = el("callOverlayActive");
+const callOverlayCalling = el("callOverlayCalling");
 const openSettingsBtn = el("openSettingsBtn");
 
 const chatWrap = el("chatWrap");
@@ -179,6 +182,7 @@ function startCallTimer() {
     if (!callStartedAt || !callDuration) return;
     const sec = Math.max(0, Math.floor((Date.now() - callStartedAt) / 1000));
     callDuration.textContent = formatDuration(sec);
+    syncOverlayDuration();
   }, 1000);
 }
 
@@ -206,13 +210,80 @@ function setInCallUI(on) {
 
 function setMainTab(name) {
   mainChatTab?.classList.toggle("active", name === "chat");
-  mainCallTab?.classList.toggle("active", name === "call");
   mainSettingsTab?.classList.toggle("active", name === "settings");
 
   chatPanel?.classList.toggle("hidden", name !== "chat");
   serverVoicePanel?.classList.toggle("hidden", name !== "voice");
-  callPanel?.classList.toggle("hidden", name !== "call");
+  callPanel?.classList.add("hidden");
   settingsPanel?.classList.toggle("hidden", name !== "settings");
+}
+
+function fillCallAvatar(node, user, fallbackId) {
+  if (!node) return;
+  node.innerHTML = "";
+  if (user?.avatarUrl) {
+    const img = document.createElement("img");
+    img.src = user.avatarUrl;
+    img.alt = "";
+    node.appendChild(img);
+  } else {
+    const label = user?.displayName || (fallbackId != null ? String(fallbackId) : "?");
+    node.textContent = computeAvatar(null, label);
+  }
+}
+
+function hideCallOverlay() {
+  callOverlay?.classList.add("hidden");
+  callOverlayIncoming?.classList.add("hidden");
+  callOverlayActive?.classList.add("hidden");
+  callOverlayCalling?.classList.add("hidden");
+  document.body.classList.remove("in-call-mode");
+}
+
+function showCallOverlayIncoming(fromPublicId) {
+  document.body.classList.add("in-call-mode");
+  callOverlay?.classList.remove("hidden");
+  callOverlayIncoming?.classList.remove("hidden");
+  callOverlayActive?.classList.add("hidden");
+  callOverlayCalling?.classList.add("hidden");
+  const friend = chatPeer?.publicId === fromPublicId ? chatPeer : { publicId: fromPublicId };
+  fillCallAvatar(el("callOverlayRemoteAvatar"), friend, fromPublicId);
+  const t = el("callOverlayIncomingText");
+  if (t) t.textContent = `${friend.displayName || fromPublicId} te sună`;
+  incomingCallBanner?.classList.add("hidden");
+}
+
+function showCallOverlayCalling(peer) {
+  document.body.classList.add("in-call-mode");
+  callOverlay?.classList.remove("hidden");
+  callOverlayCalling?.classList.remove("hidden");
+  callOverlayIncoming?.classList.add("hidden");
+  callOverlayActive?.classList.add("hidden");
+  fillCallAvatar(el("callOverlayCallingAvatar"), peer, peer?.publicId);
+  const n = el("callOverlayCallingName");
+  if (n) n.textContent = peer?.displayName || `User ${peer?.publicId}`;
+  const s = el("callOverlayCallingStatus");
+  if (s) s.textContent = `Sună ${peer?.publicId}...`;
+}
+
+function showCallOverlayActive(peer) {
+  document.body.classList.add("in-call-mode");
+  callOverlay?.classList.remove("hidden");
+  callOverlayActive?.classList.remove("hidden");
+  callOverlayIncoming?.classList.add("hidden");
+  callOverlayCalling?.classList.add("hidden");
+  fillCallAvatar(el("callOverlayRemoteAvatarActive"), peer, peer?.publicId);
+  fillCallAvatar(el("callOverlayLocalAvatar"), me, me?.publicId);
+  const rn = el("callOverlayRemoteName");
+  if (rn) rn.textContent = peer?.displayName || `User ${peer?.publicId}`;
+  const ln = el("callOverlayLocalName");
+  if (ln) ln.textContent = me?.displayName || "Tu";
+  syncOverlayDuration();
+}
+
+function syncOverlayDuration() {
+  const od = el("callOverlayDuration");
+  if (od && callDuration) od.textContent = callDuration.textContent;
 }
 
 function appendChatMessages(messages, appendOnly) {
@@ -234,7 +305,10 @@ function appendChatMessages(messages, appendOnly) {
 }
 
 async function getVoiceStream() {
-  return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  return navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    video: false,
+  });
 }
 
 function initServersModule() {
@@ -319,6 +393,7 @@ function initServersModule() {
       voiceMicBtn: el("voiceMicBtn"),
       voiceDeafenBtn: el("voiceDeafenBtn"),
       voiceLeaveBtn: el("voiceLeaveBtn"),
+      voiceStatus: el("voiceStatus"),
     },
   });
 
@@ -554,12 +629,14 @@ function setRemoteVolumePercent(pct) {
 function setRemoteMuted(on) {
   remoteMuted = !!on;
   if (remoteMuteBtn) remoteMuteBtn.textContent = remoteMuted ? "Unmute audio" : "Mute audio";
+  el("overlayRemoteMuteBtn")?.classList.toggle("active-off", remoteMuted);
   setRemoteVolumePercent(remoteVolume?.value ?? 100);
 }
 
 function setMicMuted(on) {
   micMuted = !!on;
   if (micMuteBtn) micMuteBtn.textContent = micMuted ? "Unmute microfon" : "Mute microfon";
+  el("overlayMicBtn")?.classList.toggle("active-off", micMuted);
   if (localRawTrack) localRawTrack.enabled = !micMuted; // privacy: stop sending mic frames
   setMicVolumePercent(micVolume?.value ?? 100);
 }
@@ -655,7 +732,7 @@ async function refreshMe() {
       if (incomingCallText) incomingCallText.textContent = `${fromPublicId} is calling you`;
       setCallState(`incoming from ${fromPublicId}`);
       setIncomingUI(true);
-      setMainTab("call");
+      showCallOverlayIncoming(fromPublicId);
       startRingIn();
       if (document.hidden) showNotification("Incoming call", `${fromPublicId} is calling you`);
     });
@@ -669,6 +746,8 @@ async function refreshMe() {
       setMsg(callMsg, "");
       startCallTimer();
       setInCallUI(true);
+      const peer = chatPeer?.publicId === fromPublicId ? chatPeer : { publicId: fromPublicId };
+      showCallOverlayActive(peer);
     });
 
     socket.on("call:ice", async ({ fromPublicId, candidate }) => {
@@ -905,10 +984,12 @@ async function startCall(toPublicId) {
   }
   if (pc || pendingIncoming) return;
 
+  const peer = chatPeer?.publicId === toPublicId ? chatPeer : { publicId: toPublicId, displayName: null, avatarUrl: null };
+
   try {
     setCallState(`calling ${toPublicId}...`);
     setMsg(callMsg, "");
-    setMainTab("call");
+    showCallOverlayCalling(peer);
     makePeerConnection(toPublicId);
     isCaller = true;
     startRingBack();
@@ -968,6 +1049,8 @@ async function acceptIncoming() {
     setInCallUI(true);
     setCallState("in_call");
     startCallTimer();
+    const peer = chatPeer?.publicId === fromPublicId ? chatPeer : { publicId: fromPublicId };
+    showCallOverlayActive(peer);
   } catch {
     setCallState("accept_failed");
     setMsg(callMsg, "Nu am putut accepta apelul.", "error");
@@ -982,12 +1065,14 @@ function declineIncoming() {
   stopAllRings();
   setCallState("idle");
   setMsg(callMsg, "");
+  hideCallOverlay();
 }
 
 function cleanupCall() {
   stopAllRings();
   clearNoAnswerTimer();
   stopCallTimer();
+  hideCallOverlay();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -1163,8 +1248,19 @@ micVolume?.addEventListener("input", () => {
 });
 
 mainChatTab?.addEventListener("click", () => setMainTab("chat"));
-mainCallTab?.addEventListener("click", () => setMainTab("call"));
 mainSettingsTab?.addEventListener("click", () => setMainTab("settings"));
+el("overlayAcceptBtn")?.addEventListener("click", () => acceptIncoming());
+el("overlayDeclineBtn")?.addEventListener("click", () => declineIncoming());
+el("overlayHangupBtn")?.addEventListener("click", () => cleanupCall());
+el("overlayCancelCallBtn")?.addEventListener("click", () => cleanupCall());
+el("overlayMicBtn")?.addEventListener("click", () => {
+  unlockAudio();
+  setMicMuted(!micMuted);
+});
+el("overlayRemoteMuteBtn")?.addEventListener("click", () => {
+  unlockAudio();
+  setRemoteMuted(!remoteMuted);
+});
 openSettingsBtn?.addEventListener("click", () => setMainTab("settings"));
 enableNotificationsBtn?.addEventListener("click", () => requestNotificationsPermission());
 settingsForm?.addEventListener("submit", async (e) => {

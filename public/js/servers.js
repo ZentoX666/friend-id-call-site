@@ -175,6 +175,7 @@ window.ServersUI = (function () {
     await loadServerDetail(serverId);
     els.discordLayout?.classList.remove("view-home");
     els.discordLayout?.classList.add("view-server");
+    document.body.classList.add("server-focus");
     els.channelSidebar?.classList.remove("hidden");
     els.homeBtn?.classList.remove("active");
     document.querySelectorAll(".server-icon").forEach((n) => n.classList.remove("active"));
@@ -219,6 +220,7 @@ window.ServersUI = (function () {
     VoiceChannels.leaveChannel();
     els.discordLayout?.classList.add("view-home");
     els.discordLayout?.classList.remove("view-server");
+    document.body.classList.remove("server-focus");
     els.channelSidebar?.classList.add("hidden");
     els.homeBtn?.classList.add("active");
     document.querySelectorAll(".server-icon").forEach((n) => n.classList.remove("active"));
@@ -300,6 +302,7 @@ window.ServersUI = (function () {
       onShowVoicePanel?.();
       if (els.mainTitle) els.mainTitle.textContent = `🔊 ${ch.name}`;
       VoiceChannels.setActiveChannel(ch.id, ch.name);
+      await VoiceChannels.joinCurrentChannel();
     }
   }
 
