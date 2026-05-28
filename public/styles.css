@@ -917,3 +917,264 @@ body.server-focus.call-docked #callDock{
   .call-overlay-stage{grid-template-columns:1fr;gap:20px}
   .call-overlay-content{padding:16px}
 }
+
+/* —— Mobile UI (Discord-like DMs & chat) —— */
+@media (max-width: 900px) {
+  #authView {
+    margin: 0;
+    border-radius: 0;
+    min-height: 100dvh;
+  }
+
+  .dm-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .dm-sidebar .me-card {
+    order: 10;
+    margin-top: auto;
+    flex-shrink: 0;
+    border-radius: 0;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--mobile-bar, #0b1412);
+    padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    gap: 10px;
+  }
+
+  .dm-sidebar .me-card .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+  }
+
+  .dm-sidebar .sidebar-section {
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+
+  .dm-sidebar .sidebar-section:last-of-type {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .dm-sidebar .sidebar-section:last-of-type .sidebar-title {
+    padding: 14px 16px 8px;
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    text-transform: uppercase;
+    font-family: "Inter", sans-serif;
+  }
+
+  .dm-sidebar .sidebar-section:first-of-type {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .dm-sidebar .sidebar-section:first-of-type .sidebar-title {
+    display: none;
+  }
+
+  .dm-sidebar .form-inline input {
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.25);
+    min-height: 40px;
+  }
+
+  .friends {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px 8px;
+    gap: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .friend {
+    padding: 10px 12px;
+    margin: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    min-height: 52px;
+  }
+  .friend:hover,
+  .friend.active {
+    background: rgba(0, 255, 102, 0.08);
+    box-shadow: none;
+    border: none;
+  }
+  .friend.active {
+    border-left: 3px solid var(--accent);
+    padding-left: 9px;
+  }
+
+  .friend-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border-width: 2px;
+  }
+
+  .friend-name {
+    font-size: 16px;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
+  }
+
+  .friend-sub {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .friend .actions {
+    display: none;
+  }
+
+  .friend-chevron {
+    display: flex;
+    align-items: center;
+    color: var(--muted);
+    opacity: 0.5;
+    flex-shrink: 0;
+    margin-left: 4px;
+  }
+
+  .discord-main .main-header {
+    display: none;
+  }
+
+  body.mobile-content-open #chatPanel,
+  body.mobile-content-open #serverVoicePanel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #chatPanel .empty-state {
+    padding: 32px 24px;
+    font-size: 15px;
+    font-family: "Inter", sans-serif;
+  }
+
+  #chatWrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+  }
+
+  #chatWrap .call-row {
+    display: none;
+  }
+
+  .chat {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 12px 12px 8px;
+  }
+
+  .chat-bubble {
+    max-width: 82%;
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+  .chat-bubble .meta {
+    font-size: 11px;
+    opacity: 0.7;
+  }
+
+  .chat-form {
+    flex-shrink: 0;
+    gap: 8px;
+    padding: 8px 10px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    background: var(--mobile-bar, #0b1412);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    margin: 0;
+  }
+  .chat-form input {
+    flex: 1;
+    min-height: 44px;
+    border-radius: 22px;
+    padding: 10px 16px;
+    background: rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  .chat-form .btn {
+    flex-shrink: 0;
+    border-radius: 22px;
+    min-height: 44px;
+    padding: 10px 18px;
+    font-size: 14px;
+  }
+
+  #chatWrap .hint {
+    padding: 0 16px 8px;
+    margin: 0;
+  }
+
+  .incoming-call {
+    margin: 12px;
+    border-radius: 12px;
+  }
+
+  body.call-docked #callDock {
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    width: min(380px, calc(100vw - 16px));
+  }
+
+  .modal {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .modal-card {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: 16px 16px 0 0;
+    margin: 0;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .server-icon,
+  .server-plus {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+  }
+  .server-icon.home-icon {
+    border-radius: 50%;
+  }
+}
+
+@media (min-width: 901px) {
+  .friend-chevron {
+    display: none;
+  }
+  .friend-sub {
+    display: none;
+  }
+}

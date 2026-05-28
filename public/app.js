@@ -154,11 +154,13 @@ function show(view) {
   if (view === "auth") {
     authView.classList.remove("hidden");
     appView.classList.add("hidden");
+    document.body.classList.remove("app-logged-in", "mobile-content-open");
     logoutBtn.classList.add("hidden");
     enableNotificationsBtn?.classList.add("hidden");
   } else {
     authView.classList.add("hidden");
     appView.classList.remove("hidden");
+    document.body.classList.add("app-logged-in");
     logoutBtn.classList.remove("hidden");
     updateNotificationsButton();
   }
@@ -489,6 +491,8 @@ function initServersModule() {
     inviteAdminCode: el("inviteAdminCode"),
     inviteMemberCode: el("inviteMemberCode"),
     mobileMenuBtn: el("mobileMenuBtn"),
+    mobileBackBtn: el("mobileBackBtn"),
+    mobileCallBtn: el("mobileCallBtn"),
     mobileBackdrop: el("mobileBackdrop"),
     mobileHeaderTitle: el("mobileHeaderTitle"),
     mainTitle,
@@ -511,10 +515,17 @@ function initServersModule() {
       }
       appendChatMessages(messages, appendOnly);
     },
-    onShowChatPanel: () => setMainTab("chat"),
-    onShowVoicePanel: () => setMainTab("voice"),
+    onShowChatPanel: () => {
+      setMainTab("chat");
+      updateMobileCallBtn(null);
+    },
+    onShowVoicePanel: () => {
+      setMainTab("voice");
+      updateMobileCallBtn(null);
+    },
     onGoHome: () => {
       chatPeer = null;
+      updateMobileCallBtn(null);
       if (mainTitle) mainTitle.textContent = "Selectează un prieten";
       if (chatWrap && chatEmpty) {
         chatWrap.classList.toggle("hidden", true);
@@ -682,16 +693,35 @@ function renderChatMessages(messages) {
   appendChatMessages(messages, false);
 }
 
+function updateMobileCallBtn(friend) {
+  const btn = el("mobileCallBtn");
+  if (!btn) return;
+  if (friend && ServersUI?.isMobileViewport?.()) {
+    btn.classList.remove("hidden");
+    btn.onclick = () => startCall(friend.publicId);
+  } else {
+    btn.classList.add("hidden");
+    btn.onclick = null;
+  }
+}
+
 async function openChatWith(friend) {
   ServersUI?.selectHome();
   chatPeer = friend;
-  if (chatWith) chatWith.textContent = friend ? `${friend.displayName || `User ${friend.publicId}`}` : "-";
-  if (mainTitle) mainTitle.textContent = friend ? (friend.displayName || `User ${friend.publicId}`) : "Selectează un prieten";
+  const label = friend ? friend.displayName || `User ${friend.publicId}` : "Selectează un prieten";
+  if (chatWith) chatWith.textContent = friend ? label : "-";
+  if (mainTitle) mainTitle.textContent = label;
   if (chatWrap && chatEmpty) {
     chatWrap.classList.toggle("hidden", !friend);
     chatEmpty.classList.toggle("hidden", !!friend);
   }
   setMainTab("chat");
+  updateMobileCallBtn(friend);
+  if (friend) {
+    ServersUI?.openMobileContentPane?.(label);
+  } else {
+    ServersUI?.closeMobileContentPane?.();
+  }
   if (!friend) return;
 
   try {
@@ -989,10 +1019,19 @@ async function refreshFriends() {
     const name = document.createElement("div");
     name.className = "friend-name";
     name.textContent = f.displayName || `User ${f.publicId}`;
+    const sub = document.createElement("div");
+    sub.className = "friend-sub mono";
+    sub.textContent = `ID ${f.publicId}`;
     who.appendChild(name);
+    who.appendChild(sub);
 
     meta.appendChild(avatar);
     meta.appendChild(who);
+
+    const chevron = document.createElement("div");
+    chevron.className = "friend-chevron";
+    chevron.innerHTML =
+      '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -1010,6 +1049,7 @@ async function refreshFriends() {
 
     row.appendChild(meta);
     row.appendChild(actions);
+    row.appendChild(chevron);
     friendsList.appendChild(row);
 
     row.addEventListener("click", () => {

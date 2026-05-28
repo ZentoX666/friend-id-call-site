@@ -18,6 +18,35 @@ window.ServersUI = (function () {
   let isAdmin = false;
 
   const els = {};
+  const MOBILE_MQ = "(max-width: 900px)";
+
+  function isMobileViewport() {
+    return window.matchMedia(MOBILE_MQ).matches;
+  }
+
+  function updateMobileChrome() {
+    const onContent = document.body.classList.contains("mobile-content-open");
+    els.mobileBackBtn?.classList.toggle("hidden", !onContent);
+    els.mobileMenuBtn?.classList.toggle("hidden", onContent);
+  }
+
+  function openMobileContentPane(title) {
+    if (!isMobileViewport()) return;
+    document.body.classList.add("mobile-content-open");
+    if (title && els.mobileHeaderTitle) els.mobileHeaderTitle.textContent = title;
+    updateMobileChrome();
+    closeMobileDrawers();
+  }
+
+  function closeMobileContentPane() {
+    document.body.classList.remove("mobile-content-open");
+    updateMobileChrome();
+    if (els.discordLayout?.classList.contains("view-server")) {
+      if (els.mobileHeaderTitle) els.mobileHeaderTitle.textContent = currentServer?.name || "Server";
+    } else if (els.mobileHeaderTitle) {
+      els.mobileHeaderTitle.textContent = "Mesaje directe";
+    }
+  }
 
   function init(deps) {
     api = deps.api;
@@ -31,6 +60,13 @@ window.ServersUI = (function () {
     Object.assign(els, deps.elements);
     bindEvents();
     bindSocket();
+
+    window.addEventListener("resize", () => {
+      if (!isMobileViewport()) {
+        closeMobileContentPane();
+        closeMobileDrawers();
+      }
+    });
   }
 
   function setMe(user) {
@@ -103,6 +139,7 @@ window.ServersUI = (function () {
     els.serverSettingsForm?.addEventListener("submit", onSaveServerSettings);
 
     els.mobileMenuBtn?.addEventListener("click", toggleMobileDrawer);
+    els.mobileBackBtn?.addEventListener("click", onMobileBack);
     els.mobileBackdrop?.addEventListener("click", closeMobileDrawers);
 
     els.serverSettingsModal?.addEventListener("click", (e) => {
@@ -111,22 +148,21 @@ window.ServersUI = (function () {
   }
 
   function toggleMobileDrawer() {
-    const layout = els.discordLayout;
-    if (!layout) return;
-    if (layout.classList.contains("view-server")) {
-      els.channelSidebar?.classList.toggle("mobile-open");
-    } else {
-      els.dmSidebar?.classList.toggle("mobile-open");
-      els.serverRail?.classList.toggle("mobile-open");
-    }
-    els.mobileBackdrop?.classList.toggle("open", true);
+    if (document.body.classList.contains("mobile-content-open")) return;
+    const open = els.serverRail?.classList.toggle("mobile-open");
+    els.mobileBackdrop?.classList.toggle("open", !!open);
   }
 
   function closeMobileDrawers() {
-    els.channelSidebar?.classList.remove("mobile-open");
-    els.dmSidebar?.classList.remove("mobile-open");
     els.serverRail?.classList.remove("mobile-open");
     els.mobileBackdrop?.classList.remove("open");
+  }
+
+  function onMobileBack() {
+    closeMobileContentPane();
+    if (!els.discordLayout?.classList.contains("view-server")) {
+      onGoHome?.();
+    }
   }
 
   function openServerModal(mode = "create") {
@@ -182,6 +218,7 @@ window.ServersUI = (function () {
     VoiceChannels.setActiveServer(serverId);
     VoiceChannels.leaveChannel();
     if (els.mobileHeaderTitle) els.mobileHeaderTitle.textContent = currentServer?.name || "Server";
+    closeMobileContentPane();
     closeMobileDrawers();
   }
 
@@ -205,7 +242,7 @@ window.ServersUI = (function () {
       els.addVoiceChannelBtn?.classList.toggle("hidden", !isAdmin);
       renderChannels(data.channels);
       renderServerRail();
-      if (!silent && data.channels?.length) {
+      if (!silent && data.channels?.length && !isMobileViewport()) {
         const first = data.channels.find((c) => c.type === "text") || data.channels[0];
         selectChannel(first);
       }
@@ -226,6 +263,7 @@ window.ServersUI = (function () {
     document.querySelectorAll(".server-icon").forEach((n) => n.classList.remove("active"));
     if (els.mobileHeaderTitle) els.mobileHeaderTitle.textContent = "Mesaje directe";
     onGoHome?.();
+    closeMobileContentPane();
     closeMobileDrawers();
   }
 
@@ -287,6 +325,9 @@ window.ServersUI = (function () {
       ?.classList.add("active");
 
     closeMobileDrawers();
+
+    const paneTitle = ch.type === "voice" ? ch.name : `# ${ch.name}`;
+    openMobileContentPane(paneTitle);
 
     if (ch.type === "text") {
       onShowChatPanel?.();
@@ -530,5 +571,9 @@ window.ServersUI = (function () {
     getCurrentChannel,
     renderVoicePresence,
     openServerModal,
+    isMobileViewport,
+    openMobileContentPane,
+    closeMobileContentPane,
+    onMobileBack,
   };
 })();
