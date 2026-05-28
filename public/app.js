@@ -279,6 +279,7 @@ function restoreCallOverlay() {
 }
 
 let callVolumeMenu = null;
+let callVolumeMenuDismissBound = false;
 
 function closeCallVolumeMenu() {
   if (callVolumeMenu) {
@@ -287,13 +288,51 @@ function closeCallVolumeMenu() {
   }
 }
 
+function ensureCallVolumeMenuDismiss() {
+  if (callVolumeMenuDismissBound) return;
+  callVolumeMenuDismissBound = true;
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!callVolumeMenu) return;
+      if (callVolumeMenu.contains(e.target)) return;
+      closeCallVolumeMenu();
+    },
+    true
+  );
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeCallVolumeMenu();
+  });
+  window.addEventListener("blur", () => closeCallVolumeMenu());
+}
+
 function openCallVolumeMenu(evt, anchorEl) {
   evt.preventDefault();
+  evt.stopPropagation();
   closeCallVolumeMenu();
+  ensureCallVolumeMenuDismiss();
+
   const menu = document.createElement("div");
-  menu.className = "call-volume-menu server-menu";
-  menu.style.left = `${Math.min(evt.clientX, window.innerWidth - 280)}px`;
-  menu.style.top = `${Math.min(evt.clientY, window.innerHeight - 160)}px`;
+  menu.className = "call-volume-menu";
+  menu.setAttribute("role", "dialog");
+  menu.setAttribute("aria-label", "Volum apel");
+
+  const w = 260;
+  const h = 130;
+  let left = evt.clientX;
+  let top = evt.clientY;
+  if (anchorEl) {
+    const r = anchorEl.getBoundingClientRect();
+    left = r.left + r.width / 2 - w / 2;
+    top = r.bottom + 8;
+  }
+  left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  top = Math.max(8, Math.min(top, window.innerHeight - h - 8));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+
+  menu.addEventListener("pointerdown", (e) => e.stopPropagation());
+  menu.addEventListener("contextmenu", (e) => e.preventDefault());
 
   const rLabel = document.createElement("label");
   rLabel.textContent = "Îl auzi";
@@ -740,6 +779,7 @@ function setRemoteMuted(on) {
   remoteMuted = !!on;
   if (remoteMuteBtn) remoteMuteBtn.textContent = remoteMuted ? "Unmute audio" : "Mute audio";
   el("overlayRemoteMuteBtn")?.classList.toggle("active-off", remoteMuted);
+  el("callDockDeafenBtn")?.classList.toggle("active-off", remoteMuted);
   setRemoteVolumePercent(remoteVolume?.value ?? 100);
 }
 
@@ -747,6 +787,7 @@ function setMicMuted(on) {
   micMuted = !!on;
   if (micMuteBtn) micMuteBtn.textContent = micMuted ? "Unmute microfon" : "Mute microfon";
   el("overlayMicBtn")?.classList.toggle("active-off", micMuted);
+  el("callDockMicBtn")?.classList.toggle("active-off", micMuted);
   if (localRawTrack) localRawTrack.enabled = !micMuted; // privacy: stop sending mic frames
   setMicVolumePercent(micVolume?.value ?? 100);
 }

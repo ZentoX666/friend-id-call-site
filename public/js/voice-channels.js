@@ -13,8 +13,9 @@ window.VoiceChannels = (function () {
   let localStream = null;
   let micMuted = false;
   let deafened = false;
+  let voiceCtx = null;
 
-  /** @type {Map<number, { pc, iceQueue, gain, source }>} */
+  /** @type {Map<number, { pc, iceQueue, gain, source, audioEl }>} */
   const peers = new Map();
   let voiceState = {};
 
@@ -43,6 +44,20 @@ window.VoiceChannels = (function () {
     } catch {
       // ignore
     }
+  }
+
+  function getVoiceAudioContext() {
+    unlockPlayback();
+    if (!voiceCtx) voiceCtx = getAudioCtx?.() || null;
+    if (!voiceCtx) {
+      try {
+        voiceCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch {
+        return null;
+      }
+    }
+    if (voiceCtx.state === "suspended") voiceCtx.resume().catch(() => {});
+    return voiceCtx;
   }
 
   function iAmOfferer(remotePid) {
@@ -77,9 +92,13 @@ window.VoiceChannels = (function () {
       if (Number(serverId) !== Number(activeServerId) || Number(channelId) !== Number(activeChannelId)) return;
       const pid = Number(fromPublicId);
       if (pid === Number(me?.publicId)) return;
-      if (type === "offer") await handleOffer(pid, payload);
-      else if (type === "answer") await handleAnswer(pid, payload);
-      else if (type === "ice") await handleIce(pid, payload);
+      try {
+        if (type === "offer") await handleOffer(pid, payload);
+        else if (type === "answer") await handleAnswer(pid, payload);
+        else if (type === "ice") await handleIce(pid, payload);
+      } catch (err) {
+        setStatus("Semnal voice: " + (err?.message || "eroare"));
+      }
     });
 
     socket.on("voice:moved", ({ serverId, channelId }) => {
@@ -137,6 +156,7 @@ window.VoiceChannels = (function () {
   async function ensureLocalStream() {
     if (localStream) return localStream;
     unlockPlayback();
+    getVoiceAudioContext();
     if (getStream) localStream = await getStream();
     else {
       localStream = await navigator.mediaDevices.getUserMedia({
@@ -147,23 +167,59 @@ window.VoiceChannels = (function () {
     return localStream;
   }
 
+  function ensureLocalTracksOnPc(pc) {
+    if (!localStream || !pc) return;
+    const hasAudio = pc.getSenders().some((s) => s.track?.kind === "audio");
+    if (!hasAudio) {
+      for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+    }
+  }
+
   function connectRemoteAudio(entry, stream) {
-    const ctx = getAudioCtx?.();
-    if (!ctx) return;
     unlockPlayback();
-    try {
-      if (entry.source) {
-        try {
-          entry.source.disconnect();
-        } catch {}
+    getVoiceAudioContext();
+
+    if (entry.audioEl) {
+      try {
+        entry.audioEl.srcObject = null;
+        entry.audioEl.remove();
+      } catch {}
+      entry.audioEl = null;
+    }
+
+    const audio = document.createElement("audio");
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.muted = deafened;
+    audio.setAttribute("playsinline", "true");
+    audio.srcObject = stream;
+    audio.style.cssText = "position:fixed;left:-9999px;width:1px;height:1px;";
+    document.body.appendChild(audio);
+    entry.audioEl = audio;
+    const playFallback = () => audio.play().catch(() => {});
+    playFallback();
+    audio.onloadedmetadata = playFallback;
+
+    const ctx = voiceCtx;
+    if (ctx) {
+      try {
+        if (entry.source) {
+          try {
+            entry.source.disconnect();
+          } catch {}
+        }
+        if (entry.gain) {
+          try {
+            entry.gain.disconnect();
+          } catch {}
+        }
+        entry.source = ctx.createMediaStreamSource(stream);
+        entry.gain = ctx.createGain();
+        entry.gain.gain.value = deafened ? 0 : 1.15;
+        entry.source.connect(entry.gain).connect(ctx.destination);
+      } catch {
+        // fallback: <audio> element only
       }
-      entry.source = ctx.createMediaStreamSource(stream);
-      entry.gain = ctx.createGain();
-      entry.gain.gain.value = deafened ? 0 : 1;
-      entry.source.connect(entry.gain).connect(ctx.destination);
-      if (ctx.state === "suspended") ctx.resume().catch(() => {});
-    } catch (e) {
-      setStatus("Audio: " + (e.message || "eroare"));
     }
   }
 
@@ -179,10 +235,12 @@ window.VoiceChannels = (function () {
     try {
       setStatus("Conectare la voice...");
       unlockPlayback();
+      getVoiceAudioContext();
       await ensureLocalStream();
       applyMicMute();
       socket.emit("voice:join", { serverId: activeServerId, channelId: activeChannelId });
       setStatus("Conectat. Așteaptă alți utilizatori...");
+      setTimeout(() => syncPeersForChannel(), 400);
     } catch {
       alert("Permite accesul la microfon pentru voice.");
     }
@@ -205,7 +263,8 @@ window.VoiceChannels = (function () {
   function toggleDeafen() {
     deafened = !deafened;
     peers.forEach((p) => {
-      if (p.gain) p.gain.gain.value = deafened ? 0 : 1;
+      if (p.gain) p.gain.gain.value = deafened ? 0 : 1.15;
+      if (p.audioEl) p.audioEl.muted = deafened;
     });
     els.voiceDeafenBtn?.classList.toggle("active-off", deafened);
   }
@@ -222,6 +281,10 @@ window.VoiceChannels = (function () {
     try {
       if (p.source) p.source.disconnect();
       if (p.gain) p.gain.disconnect();
+      if (p.audioEl) {
+        p.audioEl.srcObject = null;
+        p.audioEl.remove();
+      }
       p.pc.close();
     } catch {}
     peers.delete(publicId);
@@ -232,13 +295,16 @@ window.VoiceChannels = (function () {
   }
 
   function createPeer(publicId) {
-    if (peers.has(publicId)) return peers.get(publicId);
+    if (peers.has(publicId)) {
+      ensureLocalTracksOnPc(peers.get(publicId).pc);
+      return peers.get(publicId);
+    }
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const entry = { pc, iceQueue: [], gain: null, source: null };
+    const entry = { pc, iceQueue: [], gain: null, source: null, audioEl: null };
 
     pc.ontrack = (e) => {
-      const stream = e.streams[0] || new MediaStream([e.track]);
-      connectRemoteAudio(entry, stream);
+      const stream = e.streams?.[0] || (e.track ? new MediaStream([e.track]) : null);
+      if (stream) connectRemoteAudio(entry, stream);
     };
 
     pc.onicecandidate = (e) => {
@@ -254,18 +320,16 @@ window.VoiceChannels = (function () {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
-        setStatus("Conexiune voice activă.");
+        setStatus("Conexiune voice activă — ar trebui să auzi.");
         unlockPlayback();
+        getVoiceAudioContext();
       }
       if (pc.connectionState === "failed") {
-        setStatus("Conexiune voice eșuată. Reintră în canal.");
+        setStatus("Conexiune voice eșuată. Apasă Părăsește voice și intră din nou.");
       }
     };
 
-    if (localStream) {
-      for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
-    }
-
+    ensureLocalTracksOnPc(pc);
     peers.set(publicId, entry);
     return entry;
   }
@@ -285,6 +349,8 @@ window.VoiceChannels = (function () {
 
   async function syncPeersForChannel() {
     if (!activeChannelId) return;
+    await ensureLocalStream().catch(() => {});
+
     const users = usersInChannel(activeChannelId);
     const myPid = Number(me?.publicId);
     const inChannel = users.some((u) => Number(u.publicId) === myPid);
@@ -311,13 +377,16 @@ window.VoiceChannels = (function () {
 
     for (const u of remoteUsers) {
       const pid = Number(u.publicId);
-      if (peers.has(pid)) continue;
-
+      if (peers.has(pid)) {
+        ensureLocalTracksOnPc(peers.get(pid).pc);
+        continue;
+      }
       if (!iAmOfferer(pid)) continue;
 
-      const { pc } = createPeer(pid);
+      const entry = createPeer(pid);
+      const { pc } = entry;
       try {
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer({ offerToReceiveAudio: true });
         await pc.setLocalDescription(offer);
         socket.emit("voice:signal", {
           serverId: activeServerId,
@@ -334,6 +403,9 @@ window.VoiceChannels = (function () {
 
   async function handleOffer(fromPublicId, offer) {
     unlockPlayback();
+    getVoiceAudioContext();
+    await ensureLocalStream().catch(() => {});
+
     let entry = peers.get(fromPublicId);
     if (!entry) entry = createPeer(fromPublicId);
 
@@ -347,6 +419,7 @@ window.VoiceChannels = (function () {
       }
     }
 
+    ensureLocalTracksOnPc(entry.pc);
     await entry.pc.setRemoteDescription(offer);
     await flushIce(fromPublicId);
     const answer = await entry.pc.createAnswer();
