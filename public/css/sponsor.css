@@ -1,0 +1,141 @@
+/* Right sponsor rail — Maisters CS2 */
+
+.app-shell {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-main-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sponsor-panel {
+  flex: 0 0 280px;
+  width: 280px;
+  max-width: 30vw;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(0, 255, 102, 0.06) 0%, transparent 35%),
+    rgba(2, 13, 26, 0.97);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.35);
+  z-index: 10;
+  overflow: hidden;
+}
+
+.sponsor-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 16px 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sponsor-eyebrow {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.sponsor-title {
+  margin: 0;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text);
+  text-shadow: 0 0 20px rgba(0, 255, 102, 0.35);
+}
+
+.sponsor-game {
+  margin: 4px 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+  font-family: "Inter", sans-serif;
+}
+
+.sponsor-image-wrap {
+  width: 100%;
+  max-width: 220px;
+  margin: 0 auto 16px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 0 24px rgba(0, 255, 102, 0.12);
+  background: rgba(1, 10, 19, 0.8);
+}
+
+.sponsor-team-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+.sponsor-copy {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  font-family: "Inter", sans-serif;
+  max-width: 240px;
+}
+
+.sponsor-copy strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sponsor-cta {
+  width: 100%;
+  max-width: 240px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.sponsor-url {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+/* Desktop: footer tagline lives in sponsor panel area */
+@media (min-width: 901px) {
+  .madeBy {
+    right: 300px;
+    left: auto;
+    width: auto;
+    max-width: calc(100% - 320px);
+    text-align: right;
+    padding-right: 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .sponsor-panel {
+    display: none;
+  }
+
+  .app-shell {
+    flex-direction: column;
+  }
+}
