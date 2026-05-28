@@ -27,8 +27,15 @@ const serverModal = el("serverModal");
 const serverVoicePanel = el("serverVoicePanel");
 const discordLayout = el("discordLayout");
 
-const chatWith = el("chatWith");
 const chatMessages = el("chatMessages");
+const dmChatHeader = el("dmChatHeader");
+const chatHeaderAvatar = el("chatHeaderAvatar");
+const chatHeaderStatus = el("chatHeaderStatus");
+const chatHeaderSub = el("chatHeaderSub");
+const dmChatCallBtn = el("dmChatCallBtn");
+const userSettingsModal = el("userSettingsModal");
+const closeUserSettingsBtn = el("closeUserSettingsBtn");
+const meBio = el("meBio");
 const chatForm = el("chatForm");
 const chatInput = el("chatInput");
 const chatMsg = el("chatMsg");
@@ -50,9 +57,7 @@ const callMsg = el("callMsg");
 const mainTitle = el("mainTitle");
 const chatPanel = el("chatPanel");
 const callPanel = el("callPanel");
-const settingsPanel = el("settingsPanel");
-const mainChatTab = el("mainChatTab");
-const mainSettingsTab = el("mainSettingsTab");
+const settingsBio = el("settingsBio");
 const callOverlay = el("callOverlay");
 const callOverlayIncoming = el("callOverlayIncoming");
 const callOverlayActive = el("callOverlayActive");
@@ -88,7 +93,9 @@ let isCaller = false;
 let reconnectTimer = null;
 let socketReady = false;
 
-let chatPeer = null; // { publicId, email }
+let chatPeer = null; // { publicId, displayName, avatarUrl, online, bio }
+/** @type {Map<number, object>} */
+const friendsById = new Map();
 let audioCtx = null;
 let audioUnlocked = false;
 
@@ -211,13 +218,87 @@ function setInCallUI(on) {
 }
 
 function setMainTab(name) {
-  mainChatTab?.classList.toggle("active", name === "chat");
-  mainSettingsTab?.classList.toggle("active", name === "settings");
-
   chatPanel?.classList.toggle("hidden", name !== "chat");
   serverVoicePanel?.classList.toggle("hidden", name !== "voice");
   callPanel?.classList.add("hidden");
-  settingsPanel?.classList.toggle("hidden", name !== "settings");
+}
+
+function fillAvatarNode(node, user, fallbackLabel) {
+  if (!node) return;
+  node.innerHTML = "";
+  if (user?.avatarUrl) {
+    const img = document.createElement("img");
+    img.src = user.avatarUrl;
+    img.alt = "";
+    img.loading = "lazy";
+    node.appendChild(img);
+  } else {
+    node.textContent = computeAvatar(null, user?.displayName || fallbackLabel || "?");
+  }
+}
+
+function setStatusDot(dotEl, online) {
+  if (!dotEl) return;
+  dotEl.classList.remove("online", "offline");
+  dotEl.classList.add(online ? "online" : "offline");
+}
+
+function updateDmChatHeader(friend) {
+  if (!dmChatHeader) return;
+  if (!friend) {
+    dmChatHeader.classList.add("hidden");
+    return;
+  }
+  dmChatHeader.classList.remove("hidden");
+  if (mainTitle) mainTitle.textContent = friend.displayName || `User ${friend.publicId}`;
+  if (chatHeaderSub) chatHeaderSub.textContent = friend.online ? "Online" : "Offline";
+  setStatusDot(chatHeaderStatus, !!friend.online);
+  fillAvatarNode(chatHeaderAvatar, friend, String(friend.publicId));
+  if (dmChatCallBtn) {
+    dmChatCallBtn.onclick = () => startCall(friend.publicId);
+  }
+}
+
+function buildChatMessageEl(m) {
+  const isMe = m.fromPublicId === me?.publicId;
+  const row = document.createElement("div");
+  row.className = "chat-msg-row" + (isMe ? " me" : "");
+
+  if (!isMe) {
+    const av = document.createElement("div");
+    av.className = "chat-msg-avatar";
+    const peer =
+      m.fromPublicId === chatPeer?.publicId
+        ? chatPeer
+        : friendsById.get(Number(m.fromPublicId)) || {
+            displayName: m.fromDisplayName,
+            avatarUrl: m.fromAvatarUrl,
+            publicId: m.fromPublicId,
+          };
+    fillAvatarNode(av, peer, String(m.fromPublicId));
+    row.appendChild(av);
+  }
+
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble";
+
+  const nameEl = document.createElement("div");
+  nameEl.className = "chat-msg-name";
+  if (isMe) {
+    nameEl.textContent = me?.displayName || "You";
+  } else {
+    nameEl.textContent =
+      m.fromDisplayName || chatPeer?.displayName || friendsById.get(Number(m.fromPublicId))?.displayName || `User ${m.fromPublicId}`;
+  }
+
+  const bodyEl = document.createElement("div");
+  bodyEl.className = "chat-msg-body";
+  bodyEl.textContent = m.body;
+
+  bubble.appendChild(nameEl);
+  bubble.appendChild(bodyEl);
+  row.appendChild(bubble);
+  return row;
 }
 
 function fillCallAvatar(node, user, fallbackId) {
@@ -439,16 +520,7 @@ function appendChatMessages(messages, appendOnly) {
   if (!chatMessages) return;
   if (!appendOnly) chatMessages.innerHTML = "";
   for (const m of messages) {
-    const b = document.createElement("div");
-    b.className = "chat-bubble" + (m.fromPublicId === me?.publicId ? " me" : "");
-    const meta = document.createElement("div");
-    meta.className = "meta mono";
-    meta.textContent = `${m.fromDisplayName || m.fromPublicId} • ${m.createdAt}`;
-    const body = document.createElement("div");
-    body.textContent = m.body;
-    b.appendChild(meta);
-    b.appendChild(body);
-    chatMessages.appendChild(b);
+    chatMessages.appendChild(buildChatMessageEl(m));
   }
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -508,7 +580,7 @@ function initServersModule() {
     onTextChannelMessages: (messages, appendOnly) => {
       chatPeer = null;
       const ch = ServersUI.getCurrentChannel();
-      if (chatWith) chatWith.textContent = ch ? `# ${ch.name}` : "-";
+      updateDmChatHeader(null);
       if (chatWrap && chatEmpty) {
         chatWrap.classList.remove("hidden");
         chatEmpty.classList.add("hidden");
@@ -526,7 +598,7 @@ function initServersModule() {
     onGoHome: () => {
       chatPeer = null;
       updateMobileCallBtn(null);
-      if (mainTitle) mainTitle.textContent = "Selectează un prieten";
+      updateDmChatHeader(null);
       if (chatWrap && chatEmpty) {
         chatWrap.classList.toggle("hidden", true);
         chatEmpty.classList.toggle("hidden", false);
@@ -705,12 +777,24 @@ function updateMobileCallBtn(friend) {
   }
 }
 
+function setFriendOnline(publicId, online) {
+  const pid = Number(publicId);
+  const f = friendsById.get(pid);
+  if (f) f.online = online;
+  if (chatPeer && Number(chatPeer.publicId) === pid) {
+    chatPeer.online = online;
+    updateDmChatHeader(chatPeer);
+  }
+  const row = friendsList?.querySelector(`.friend[data-public-id="${pid}"]`);
+  const dot = row?.querySelector(".status-dot");
+  setStatusDot(dot, online);
+}
+
 async function openChatWith(friend) {
   ServersUI?.selectHome();
   chatPeer = friend;
-  const label = friend ? friend.displayName || `User ${friend.publicId}` : "Selectează un prieten";
-  if (chatWith) chatWith.textContent = friend ? label : "-";
-  if (mainTitle) mainTitle.textContent = label;
+  const label = friend ? friend.displayName || `User ${friend.publicId}` : "";
+  updateDmChatHeader(friend);
   if (chatWrap && chatEmpty) {
     chatWrap.classList.toggle("hidden", !friend);
     chatEmpty.classList.toggle("hidden", !!friend);
@@ -725,14 +809,19 @@ async function openChatWith(friend) {
   if (!friend) return;
 
   try {
-    setMsg(chatMsg, "Se încarcă...");
+    setMsg(chatMsg, "Loading…");
     const data = await api(`/api/messages/${friend.publicId}`);
+    if (data.friend) {
+      chatPeer = { ...friend, ...data.friend, online: friend.online };
+      friendsById.set(Number(chatPeer.publicId), chatPeer);
+      updateDmChatHeader(chatPeer);
+    }
     renderChatMessages(data.messages || []);
     setMsg(chatMsg, "");
     if (chatInput) chatInput.focus();
   } catch (err) {
     const code = err?.data?.error || "error";
-    const readable = code === "not_friends" ? "Nu mai sunteți prieteni." : "Nu am putut încărca chat-ul.";
+    const readable = code === "not_friends" ? "You are no longer friends." : "Could not load chat.";
     setMsg(chatMsg, readable, "error");
   }
 }
@@ -873,6 +962,16 @@ async function refreshMe() {
   // prefill settings
   if (settingsDisplayName) settingsDisplayName.value = me.displayName || "";
   if (settingsAvatarUrl) settingsAvatarUrl.value = me.avatarUrl || "";
+  if (settingsBio) settingsBio.value = me.bio || "";
+  if (meBio) {
+    if (me.bio) {
+      meBio.textContent = me.bio;
+      meBio.classList.remove("hidden");
+    } else {
+      meBio.textContent = "";
+      meBio.classList.add("hidden");
+    }
+  }
 
   // Connect socket for signaling
   if (!socket) {
@@ -882,8 +981,15 @@ async function refreshMe() {
       socket.emit("auth", { publicId: me.publicId });
     });
 
-    socket.on("presence:ready", () => {
+    socket.on("presence:ready", ({ onlinePublicIds }) => {
       socketReady = true;
+      if (Array.isArray(onlinePublicIds)) {
+        for (const pid of onlinePublicIds) setFriendOnline(pid, true);
+      }
+    });
+
+    socket.on("presence:update", ({ publicId, online }) => {
+      setFriendOnline(publicId, online);
     });
 
     socket.on("disconnect", () => {
@@ -955,23 +1061,14 @@ async function refreshMe() {
 
       // If this is the currently opened chat, append & scroll
       if (chatPeer && (msg.fromPublicId === chatPeer.publicId || msg.toPublicId === chatPeer.publicId)) {
-        // append bubble
-        const b = document.createElement("div");
-        b.className = "chat-bubble" + (msg.fromPublicId === me?.publicId ? " me" : "");
-        const meta = document.createElement("div");
-        meta.className = "meta mono";
-        meta.textContent = `${msg.fromPublicId} • ${msg.createdAt}`;
-        const body = document.createElement("div");
-        body.textContent = msg.body;
-        b.appendChild(meta);
-        b.appendChild(body);
-        chatMessages?.appendChild(b);
+        chatMessages?.appendChild(buildChatMessageEl(msg));
         if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
       } else {
-        setMsg(chatMsg, "Mesaj nou primit.", "muted");
+        setMsg(chatMsg, "New message received.", "muted");
       }
       if (document.hidden && msg.fromPublicId !== me?.publicId) {
-        showNotification("New message", `From ${msg.fromPublicId}: ${String(msg.body || "").slice(0, 80)}`);
+        const fromName = msg.fromDisplayName || msg.fromPublicId;
+        showNotification("New message", `${fromName}: ${String(msg.body || "").slice(0, 80)}`);
       }
     });
 
@@ -986,46 +1083,46 @@ async function refreshMe() {
 async function refreshFriends() {
   const data = await api("/api/friends");
   friendsList.innerHTML = "";
+  friendsById.clear();
 
   if (!data.friends.length) {
     const empty = document.createElement("div");
     empty.className = "muted";
-    empty.textContent = "Nu ai prieteni încă. Adaugă pe cineva prin ID.";
+    empty.textContent = "No friends yet. Add someone by ID.";
     friendsList.appendChild(empty);
     return;
   }
 
   for (const f of data.friends) {
+    friendsById.set(Number(f.publicId), f);
+
     const row = document.createElement("div");
     row.className = "friend";
+    row.dataset.publicId = String(f.publicId);
 
     const meta = document.createElement("div");
     meta.className = "meta friend-meta";
 
+    const avWrap = document.createElement("div");
+    avWrap.className = "avatar-with-status";
+
     const avatar = document.createElement("div");
     avatar.className = "friend-avatar";
-    if (f.avatarUrl) {
-      const img = document.createElement("img");
-      img.src = f.avatarUrl;
-      img.alt = "avatar";
-      img.loading = "lazy";
-      avatar.appendChild(img);
-    } else {
-      avatar.textContent = computeAvatar(null, f.displayName || String(f.publicId));
-    }
+    fillAvatarNode(avatar, f, String(f.publicId));
+
+    const dot = document.createElement("span");
+    dot.className = "status-dot " + (f.online ? "online" : "offline");
+    avWrap.appendChild(avatar);
+    avWrap.appendChild(dot);
 
     const who = document.createElement("div");
     who.className = "friend-who";
     const name = document.createElement("div");
     name.className = "friend-name";
     name.textContent = f.displayName || `User ${f.publicId}`;
-    const sub = document.createElement("div");
-    sub.className = "friend-sub mono";
-    sub.textContent = `ID ${f.publicId}`;
     who.appendChild(name);
-    who.appendChild(sub);
 
-    meta.appendChild(avatar);
+    meta.appendChild(avWrap);
     meta.appendChild(who);
 
     const chevron = document.createElement("div");
@@ -1033,22 +1130,7 @@ async function refreshFriends() {
     chevron.innerHTML =
       '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-    const actions = document.createElement("div");
-    actions.className = "actions";
-    const callBtn = document.createElement("button");
-    callBtn.className = "btn btn-ghost";
-    callBtn.textContent = "Sună";
-    callBtn.addEventListener("click", () => startCall(f.publicId));
-    actions.appendChild(callBtn);
-
-    const chatBtn = document.createElement("button");
-    chatBtn.className = "btn btn-ghost";
-    chatBtn.textContent = "Chat";
-    chatBtn.addEventListener("click", () => openChatWith(f));
-    actions.appendChild(chatBtn);
-
     row.appendChild(meta);
-    row.appendChild(actions);
     row.appendChild(chevron);
     friendsList.appendChild(row);
 
@@ -1393,17 +1475,7 @@ chatForm?.addEventListener("submit", async (e) => {
     setMsg(chatMsg, "");
     // append my own message immediately
     if (data?.message) {
-      const msg = data.message;
-      const b = document.createElement("div");
-      b.className = "chat-bubble me";
-      const meta = document.createElement("div");
-      meta.className = "meta mono";
-      meta.textContent = `${msg.fromPublicId} • ${msg.createdAt}`;
-      const bodyEl = document.createElement("div");
-      bodyEl.textContent = msg.body;
-      b.appendChild(meta);
-      b.appendChild(bodyEl);
-      chatMessages?.appendChild(b);
+      chatMessages?.appendChild(buildChatMessageEl(data.message));
       if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
     }
   } catch (err) {
@@ -1440,8 +1512,6 @@ micVolume?.addEventListener("input", () => {
   setMicVolumePercent(micVolume.value);
 });
 
-mainChatTab?.addEventListener("click", () => setMainTab("chat"));
-mainSettingsTab?.addEventListener("click", () => setMainTab("settings"));
 el("overlayAcceptBtn")?.addEventListener("click", () => acceptIncoming());
 el("overlayDeclineBtn")?.addEventListener("click", () => declineIncoming());
 el("overlayHangupBtn")?.addEventListener("click", () => cleanupCall());
@@ -1464,7 +1534,13 @@ el("callDockDeafenBtn")?.addEventListener("click", () => {
   unlockAudio();
   setRemoteMuted(!remoteMuted);
 });
-openSettingsBtn?.addEventListener("click", () => setMainTab("settings"));
+openSettingsBtn?.addEventListener("click", () => {
+  userSettingsModal?.classList.remove("hidden");
+});
+closeUserSettingsBtn?.addEventListener("click", () => userSettingsModal?.classList.add("hidden"));
+userSettingsModal?.addEventListener("click", (e) => {
+  if (e.target === userSettingsModal) userSettingsModal.classList.add("hidden");
+});
 enableNotificationsBtn?.addEventListener("click", () => requestNotificationsPermission());
 settingsForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1472,8 +1548,9 @@ settingsForm?.addEventListener("submit", async (e) => {
   const form = new FormData(settingsForm);
   const displayName = String(form.get("displayName") || "").trim();
   const avatarUrl = String(form.get("avatarUrl") || "").trim();
+  const bio = String(form.get("bio") || "").trim();
   try {
-    const data = await api("/api/profile", { method: "POST", body: JSON.stringify({ displayName, avatarUrl }) });
+    const data = await api("/api/profile", { method: "POST", body: JSON.stringify({ displayName, avatarUrl, bio }) });
     me = data.user;
     setMsg(settingsMsg, "Gata.");
     await refreshMe();

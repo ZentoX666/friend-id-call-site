@@ -80,17 +80,29 @@
 
         <div id="discordLayout" class="discord-layout view-home">
           <nav class="server-rail" id="serverRail">
-            <button id="homeBtn" class="server-icon home-icon active" type="button" title="Mesaje directe">
-              <img
-                class="home-icon-img"
-                src="https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcRxO5Ye3_b9XMCAsA7dYf_-cFbt8g6PD7lUlxkm8jE-_X-Ztqmv"
-                alt="TakeInfo"
-                width="46"
-                height="46"
-              />
-            </button>
-            <div id="serverIcons" class="server-icons"></div>
-            <button id="openServerModalBtn" class="server-plus" type="button" title="Servere">+</button>
+            <div class="server-rail-top">
+              <button id="homeBtn" class="server-icon home-icon active" type="button" title="Mesaje directe">
+                <img
+                  class="home-icon-img"
+                  src="https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcRxO5Ye3_b9XMCAsA7dYf_-cFbt8g6PD7lUlxkm8jE-_X-Ztqmv"
+                  alt="TakeInfo"
+                  width="46"
+                  height="46"
+                />
+              </button>
+              <div id="serverIcons" class="server-icons"></div>
+              <button id="openServerModalBtn" class="server-plus" type="button" title="Servere">+</button>
+            </div>
+            <a
+              class="server-support-btn"
+              href="mailto:zentox666@gmail.com?subject=TakeInfo%20Support"
+              title="Contact support"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 6h16v12H4V6zm0 0l8 7 8-7" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              </svg>
+              <span>Support</span>
+            </a>
           </nav>
 
           <aside id="channelSidebar" class="channel-sidebar hidden">
@@ -118,16 +130,20 @@
 
           <aside id="dmSidebar" class="dm-sidebar">
             <div class="me-card">
-              <button id="avatarBtn" class="avatar" title="Profil">
-                <img id="avatarImg" class="avatar-img hidden" alt="avatar" />
-                <span id="avatarText">?</span>
-              </button>
+              <div class="avatar-with-status">
+                <button id="avatarBtn" class="avatar" title="Profil">
+                  <img id="avatarImg" class="avatar-img hidden" alt="avatar" />
+                  <span id="avatarText">?</span>
+                </button>
+                <span class="status-dot online" aria-hidden="true"></span>
+              </div>
               <div class="me-meta">
                 <div id="meName" class="profile-name"></div>
+                <div id="meBio" class="me-bio muted hidden"></div>
                 <div id="mePublicId" class="mono muted"></div>
                 <div id="meEmail" class="mono muted hidden"></div>
               </div>
-              <button id="openSettingsBtn" class="btn btn-ghost btn-icon" type="button" title="Setări">⚙</button>
+              <button id="openSettingsBtn" class="btn btn-ghost btn-icon" type="button" title="Settings">⚙</button>
             </div>
 
             <div class="sidebar-section">
@@ -148,12 +164,23 @@
 
           <div class="discord-main" id="discordMain">
           <main class="main">
-            <div class="main-header" id="mainHeader">
-              <div class="main-title mono" id="mainTitle">Selectează un prieten</div>
-              <div class="main-actions" id="mainHeaderTabs">
-                <button id="mainChatTab" class="tab2 active" type="button">Chat</button>
-                <button id="mainSettingsTab" class="tab2" type="button">Setări</button>
+            <div class="main-header dm-chat-header hidden" id="dmChatHeader">
+              <div class="dm-chat-header-info">
+                <div class="avatar-with-status">
+                  <div id="chatHeaderAvatar" class="friend-avatar">?</div>
+                  <span id="chatHeaderStatus" class="status-dot offline" aria-hidden="true"></span>
+                </div>
+                <div class="dm-chat-header-text">
+                  <div class="main-title" id="mainTitle">Friend</div>
+                  <div class="dm-chat-sub muted" id="chatHeaderSub">Offline</div>
+                </div>
               </div>
+              <button id="dmChatCallBtn" class="btn btn-ghost dm-call-btn" type="button" title="Call">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M6.5 4.5c1.2-.9 2.9-.4 3.5 1.1l.5 1.5c.4 1.2-.1 2.5-1.1 3.1l-1 .6c.8 1.6 2.2 3 3.8 3.8l.6-1c.6-1 1.9-1.5 3.1-1.1l1.5.5c1.5.6 2 2.3 1.1 3.5l-.8 1.1c-.5.7-1.3 1.1-2.1 1-3.5-.4-6.8-2.3-9.2-4.7S3.9 9.1 3.5 5.6c-.1-.8.3-1.6 1-2.1l.8-.8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                </svg>
+                Call
+              </button>
             </div>
 
             <section id="serverVoicePanel" class="panel hidden">
@@ -172,7 +199,7 @@
               </div>
             </section>
 
-            <section id="chatPanel" class="panel">
+            <section id="chatPanel" class="panel chat-panel-full">
               <div id="incomingCallBanner" class="incoming-call hidden neon-border-green">
                 <div class="wave-bars" aria-hidden="true">
                   <span class="wave-bar"></span>
@@ -189,13 +216,9 @@
                   <button id="chatDeclineBtn" class="btn incoming-decline" type="button">Respinge</button>
                 </div>
               </div>
-              <div class="empty-state" id="chatEmpty">Alege un prieten din stânga ca să deschizi chat-ul.</div>
-              <div id="chatWrap" class="hidden">
-                <div class="call-row">
-                  <div class="muted">Cu:</div>
-                  <div id="chatWith" class="mono">-</div>
-                </div>
-                <div id="chatMessages" class="chat"></div>
+              <div class="empty-state" id="chatEmpty">Select a friend from the list to start chatting.</div>
+              <div id="chatWrap" class="hidden chat-wrap-full">
+                <div id="chatMessages" class="chat chat-messages-full"></div>
                 <form id="chatForm" class="form-inline chat-form">
                   <input id="chatInput" name="body" placeholder="Scrie mesaj..." autocomplete="off" />
                   <button class="btn" type="submit">Trimite</button>
@@ -251,33 +274,6 @@
               <audio id="remoteAudio" autoplay></audio>
             </section>
 
-            <section id="settingsPanel" class="panel hidden">
-              <div class="settings-grid">
-                <div class="card inner-card">
-                  <h3>Profil</h3>
-                  <form id="settingsForm" class="form">
-                    <label>Nume</label>
-                    <input name="displayName" id="settingsDisplayName" maxlength="40" placeholder="Numele tău" />
-                    <label>Avatar URL</label>
-                    <input name="avatarUrl" id="settingsAvatarUrl" maxlength="500" placeholder="https://..." />
-                    <button class="btn" type="submit">Salvează</button>
-                    <div class="hint" id="settingsMsg"></div>
-                  </form>
-                </div>
-
-                <div class="card inner-card">
-                  <h3>Cont</h3>
-                  <div class="pill">
-                    <span class="muted">ID-ul tău</span>
-                    <span id="meIdPill" class="mono"></span>
-                  </div>
-                  <div class="pill">
-                    <span class="muted">Email (doar tu)</span>
-                    <span id="meEmailPill" class="mono"></span>
-                  </div>
-                </div>
-              </div>
-            </section>
           </main>
           </div>
         </div>
@@ -316,6 +312,33 @@
             </div>
             <div class="hint" id="serverModalMsg"></div>
             <button id="closeServerModalBtn" class="btn btn-ghost" type="button">Închide</button>
+          </div>
+        </div>
+
+        <div id="userSettingsModal" class="modal hidden">
+          <div class="modal-card">
+            <h3>Settings</h3>
+            <form id="settingsForm" class="form">
+              <label>Display name</label>
+              <input name="displayName" id="settingsDisplayName" maxlength="40" placeholder="Your name" />
+              <label>Bio</label>
+              <textarea name="bio" id="settingsBio" maxlength="190" rows="3" placeholder="A short bio…"></textarea>
+              <label>Avatar URL</label>
+              <input name="avatarUrl" id="settingsAvatarUrl" maxlength="500" placeholder="https://..." />
+              <button class="btn" type="submit">Save</button>
+              <div class="hint" id="settingsMsg"></div>
+            </form>
+            <div class="settings-account-pills">
+              <div class="pill">
+                <span class="muted">Your ID</span>
+                <span id="meIdPill" class="mono"></span>
+              </div>
+              <div class="pill">
+                <span class="muted">Email (only you)</span>
+                <span id="meEmailPill" class="mono"></span>
+              </div>
+            </div>
+            <button id="closeUserSettingsBtn" class="btn btn-ghost" type="button">Close</button>
           </div>
         </div>
 

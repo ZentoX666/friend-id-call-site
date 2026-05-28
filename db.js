@@ -36,6 +36,7 @@ function normalizeRow(row) {
   if (out.inviteCode == null && out.invitecode != null) out.inviteCode = out.invitecode;
   if (out.fromDisplayName == null && out.fromdisplayname != null) out.fromDisplayName = out.fromdisplayname;
   if (out.fromAvatarUrl == null && out.fromavatarurl != null) out.fromAvatarUrl = out.fromavatarurl;
+  if (out.bio == null && row.bio != null) out.bio = row.bio;
 
   return out;
 }
@@ -129,6 +130,7 @@ async function initDb() {
     `);
 
     await pgPool.query("ALTER TABLE groups ADD COLUMN IF NOT EXISTS avatar_url TEXT");
+    await pgPool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT");
 
     await ensureServerSchema({ getAll, run, pgPool });
 
@@ -204,6 +206,7 @@ async function initDb() {
   const colNames = new Set(userCols.map((c) => c.name));
   if (!colNames.has("display_name")) sqliteDb.run("ALTER TABLE users ADD COLUMN display_name TEXT");
   if (!colNames.has("avatar_url")) sqliteDb.run("ALTER TABLE users ADD COLUMN avatar_url TEXT");
+  if (!colNames.has("bio")) sqliteDb.run("ALTER TABLE users ADD COLUMN bio TEXT");
 
   await ensureServerSchema({ getAll, run, pgPool: null });
 

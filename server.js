@@ -66,14 +66,14 @@ async function main() {
   app.get("/api/me", async (req, res) => {
     if (!req.session.userId) return res.json({ authenticated: false });
     const user = await getOne(
-      "SELECT public_id AS publicId, email, display_name AS displayName, avatar_url AS avatarUrl FROM users WHERE id = ?",
+      "SELECT public_id AS publicId, email, display_name AS displayName, avatar_url AS avatarUrl, bio FROM users WHERE id = ?",
       [req.session.userId]
     );
     if (!user) {
       req.session.destroy(() => {});
       return res.json({ authenticated: false });
     }
-    res.json({ authenticated: true, user });
+    res.json({ authenticated: true, user: { ...user, online: true } });
   });
 
   app.post("/api/signup", async (req, res) => {
@@ -136,17 +136,20 @@ async function main() {
     try {
       const displayName = String(req.body.displayName || "").trim();
       const avatarUrl = String(req.body.avatarUrl || "").trim();
+      const bio = String(req.body.bio || "").trim();
       if (displayName && displayName.length > 40) return res.status(400).json({ error: "invalid_display_name" });
       if (avatarUrl && avatarUrl.length > 500) return res.status(400).json({ error: "invalid_avatar_url" });
+      if (bio.length > 190) return res.status(400).json({ error: "invalid_bio" });
 
-      await run("UPDATE users SET display_name = ?, avatar_url = ? WHERE id = ?", [
+      await run("UPDATE users SET display_name = ?, avatar_url = ?, bio = ? WHERE id = ?", [
         displayName || null,
         avatarUrl || null,
+        bio || null,
         req.session.userId,
       ]);
 
       const user = await getOne(
-        "SELECT public_id AS publicId, email, display_name AS displayName, avatar_url AS avatarUrl FROM users WHERE id = ?",
+        "SELECT public_id AS publicId, email, display_name AS displayName, avatar_url AS avatarUrl, bio FROM users WHERE id = ?",
         [req.session.userId]
       );
       res.json({ ok: true, user });
@@ -158,7 +161,7 @@ async function main() {
   app.get("/api/friends", requireAuth, async (req, res) => {
     const rows = await getAll(
       `
-      SELECT u.public_id AS publicId, u.display_name AS displayName, u.avatar_url AS avatarUrl
+      SELECT u.id AS userId, u.public_id AS publicId, u.display_name AS displayName, u.avatar_url AS avatarUrl, u.bio
       FROM friendships f
       JOIN users u ON u.id = f.friend_user_id
       WHERE f.user_id = ?
@@ -166,7 +169,14 @@ async function main() {
     `,
       [req.session.userId]
     );
-    res.json({ friends: rows });
+    const friends = rows.map((r) => ({
+      publicId: r.publicId,
+      displayName: r.displayName,
+      avatarUrl: r.avatarUrl,
+      bio: r.bio,
+      online: isUserOnline(r.userId),
+    }));
+    res.json({ friends });
   });
 
   app.post("/api/friends/add", requireAuth, async (req, res) => {
@@ -367,6 +377,35 @@ async function main() {
   // Map userId -> socket.id (single active socket)
   const userSockets = new Map();
 
+  async function getFriendUserIds(userId) {
+    const rows = await getAll("SELECT friend_user_id AS friendId FROM friendships WHERE user_id = ?", [userId]);
+    return rows.map((r) => r.friendId);
+  }
+
+  async function notifyFriendsPresence(userId, publicId, online) {
+    if (!userId || publicId == null) return;
+    const friendIds = await getFriendUserIds(userId);
+    for (const fid of friendIds) {
+      const sockId = userSockets.get(fid);
+      if (sockId) io.to(sockId).emit("presence:update", { publicId: Number(publicId), online: !!online });
+    }
+  }
+
+  async function getOnlineFriendPublicIds(userId) {
+    const friendIds = await getFriendUserIds(userId);
+    const online = [];
+    for (const fid of friendIds) {
+      if (!userSockets.has(fid)) continue;
+      const u = await getOne("SELECT public_id AS publicId FROM users WHERE id = ?", [fid]);
+      if (u?.publicId != null) online.push(Number(u.publicId));
+    }
+    return online;
+  }
+
+  function isUserOnline(userId) {
+    return userSockets.has(userId);
+  }
+
   // ----- Chat (persistent in SQLite file) -----
   app.get("/api/messages/:friendPublicId", requireAuth, async (req, res) => {
     const friendPublicId = Number(req.params.friendPublicId);
@@ -391,6 +430,8 @@ async function main() {
         m.body AS body,
         m.created_at AS createdAt,
         fu.public_id AS fromPublicId,
+        fu.display_name AS fromDisplayName,
+        fu.avatar_url AS fromAvatarUrl,
         tu.public_id AS toPublicId
       FROM messages m
       JOIN users fu ON fu.id = m.from_user_id
@@ -431,6 +472,8 @@ async function main() {
         m.body AS body,
         m.created_at AS createdAt,
         fu.public_id AS fromPublicId,
+        fu.display_name AS fromDisplayName,
+        fu.avatar_url AS fromAvatarUrl,
         tu.public_id AS toPublicId
       FROM messages m
       JOIN users fu ON fu.id = m.from_user_id
@@ -442,11 +485,20 @@ async function main() {
       [me.id, friend.id]
     );
 
-    // emit to receiver if online
-    const toSocketId = userSockets.get(friend.id);
-    if (toSocketId) io.to(toSocketId).emit("chat:message", msg);
+    const sender = await getOne(
+      "SELECT public_id AS publicId, display_name AS displayName, avatar_url AS avatarUrl FROM users WHERE id = ?",
+      [me.id]
+    );
+    const enriched = {
+      ...msg,
+      fromDisplayName: sender?.displayName || null,
+      fromAvatarUrl: sender?.avatarUrl || null,
+    };
 
-    res.json({ ok: true, message: msg });
+    const toSocketId = userSockets.get(friend.id);
+    if (toSocketId) io.to(toSocketId).emit("chat:message", enriched);
+
+    res.json({ ok: true, message: enriched });
   });
 
   // ----- Socket.IO for presence + WebRTC signaling -----
@@ -475,7 +527,9 @@ async function main() {
           [user.id]
         );
         for (const s of servers) socket.join(`server:${s.serverId}`);
-        socket.emit("presence:ready", { ok: true });
+        const onlineFriends = await getOnlineFriendPublicIds(user.id);
+        socket.emit("presence:ready", { ok: true, onlinePublicIds: onlineFriends });
+        await notifyFriendsPresence(user.id, socket.data.publicId, true);
       } catch {
         // ignore
       }
@@ -565,7 +619,11 @@ async function main() {
 
     socket.on("disconnect", () => {
       const userId = socket.data.userId;
-      if (userId) userSockets.delete(userId);
+      const publicId = socket.data.publicId;
+      if (userId) {
+        userSockets.delete(userId);
+        notifyFriendsPresence(userId, publicId, false).catch(() => {});
+      }
     });
   });
 

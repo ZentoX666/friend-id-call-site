@@ -281,6 +281,30 @@ input:focus,select:focus,textarea:focus{
 }
 
 .profile-name{font-weight:700;letter-spacing:.02em}
+.me-bio{
+  font-size:12px;
+  line-height:1.35;
+  margin-top:2px;
+  max-height:2.7em;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.avatar-with-status{
+  position:relative;
+  flex-shrink:0;
+}
+.status-dot{
+  position:absolute;
+  bottom:-1px;
+  right:-1px;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  border:2px solid var(--card,#020d1a);
+  box-sizing:border-box;
+}
+.status-dot.online{background:#23d366;box-shadow:0 0 8px rgba(35,211,102,.55)}
+.status-dot.offline{background:#ff3d6a;box-shadow:0 0 6px rgba(255,61,106,.35)}
 .avatar{
   width:48px;height:48px;border-radius:10px;
   background:
@@ -485,7 +509,8 @@ input:focus,select:focus,textarea:focus{
   overflow:hidden;
   flex:0 0 auto;
 }
-.friend-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.friend-avatar img,.chat-msg-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.friend-avatar img,.avatar img{object-fit:cover}
 .friend .actions{display:flex;gap:8px}
 .group-item{
   padding:10px 12px;
@@ -495,7 +520,8 @@ input:focus,select:focus,textarea:focus{
 }
 .group-name{font-weight:700;color:var(--text)}
 
-.main-header{
+.main-header,
+.dm-chat-header{
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -505,6 +531,98 @@ input:focus,select:focus,textarea:focus{
   background: rgba(1,10,19,.65);
   border:1px solid var(--border);
   margin-bottom:12px;
+  flex-shrink:0;
+}
+.dm-chat-header.hidden{display:none !important}
+.dm-chat-header-info{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+  flex:1;
+}
+.dm-chat-header-text{min-width:0}
+.dm-chat-header .main-title{
+  font-size:1.05rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.dm-chat-sub{font-size:12px}
+.dm-call-btn{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  flex-shrink:0;
+}
+.chat-panel-full{
+  display:flex;
+  flex-direction:column;
+  flex:1;
+  min-height:0;
+}
+.chat-wrap-full{
+  flex:1;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+}
+.chat-messages-full{
+  flex:1;
+  height:auto !important;
+  min-height:0;
+  margin:0 !important;
+}
+.chat-msg-row{
+  display:flex;
+  align-items:flex-end;
+  gap:10px;
+  margin-bottom:10px;
+  max-width:100%;
+}
+.chat-msg-row.me{
+  flex-direction:row-reverse;
+}
+.chat-msg-avatar{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  flex-shrink:0;
+  background:rgba(1,10,19,.8);
+  border:1px solid var(--border);
+  display:grid;
+  place-items:center;
+  font-weight:800;
+  font-size:13px;
+  color:var(--accent);
+  overflow:hidden;
+}
+.chat-msg-row.me .chat-msg-avatar{display:none}
+.chat-msg-row .chat-bubble{
+  max-width:min(78%,520px);
+  margin:0;
+}
+.chat-msg-name{
+  font-size:12px;
+  font-weight:600;
+  color:var(--accent);
+  margin-bottom:4px;
+  opacity:.9;
+}
+.chat-msg-row.me .chat-msg-name{
+  text-align:right;
+  color:var(--muted);
+}
+.chat-msg-body{
+  font-size:15px;
+  line-height:1.4;
+  word-break:break-word;
+}
+.settings-account-pills{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:8px;
 }
 .main-title{
   font-weight:700;
@@ -820,11 +938,11 @@ input:focus,select:focus,textarea:focus{
 .wave-bars.small{height:24px}
 .wave-bars.small .wave-bar{width:3px}
 
-body.in-call-mode #mainHeader,
+body.in-call-mode #dmChatHeader,
 body.in-call-mode #callPanel,
 body.in-call-mode .incoming-call{display:none !important}
 
-body.call-docked #mainHeader{display:flex}
+body.call-docked #dmChatHeader{display:flex}
 
 .call-close-tab{
   margin-left:auto;
@@ -1054,8 +1172,12 @@ body.server-focus.call-docked #callDock{
     margin-left: 4px;
   }
 
-  .discord-main .main-header {
-    display: none;
+  .dm-chat-header {
+    margin: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
   }
 
   body.mobile-content-open #chatPanel,
