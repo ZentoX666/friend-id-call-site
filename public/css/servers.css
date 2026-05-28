@@ -210,6 +210,9 @@ body.server-focus .discord-layout.view-server .discord-main {
   min-height: 0;
   overflow-y: auto;
 }
+body.call-docked .dm-sidebar{
+  display:flex !important;
+}
 .discord-layout.view-server .dm-sidebar {
   grid-column: 3;
   border-left: none;

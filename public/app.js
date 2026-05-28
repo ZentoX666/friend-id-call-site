@@ -232,12 +232,107 @@ function fillCallAvatar(node, user, fallbackId) {
   }
 }
 
+let callOverlayMinimized = false;
+let activeCallPeer = null;
+
 function hideCallOverlay() {
+  callOverlayMinimized = false;
+  activeCallPeer = null;
   callOverlay?.classList.add("hidden");
   callOverlayIncoming?.classList.add("hidden");
   callOverlayActive?.classList.add("hidden");
   callOverlayCalling?.classList.add("hidden");
+  document.body.classList.remove("in-call-mode", "call-docked");
+  el("callDock")?.classList.add("hidden");
+}
+
+function minimizeCallOverlay() {
+  if (!pc && !pendingIncoming) return;
+  callOverlayMinimized = true;
+  callOverlay?.classList.add("hidden");
   document.body.classList.remove("in-call-mode");
+  document.body.classList.add("call-docked");
+  const dock = el("callDock");
+  dock?.classList.remove("hidden");
+  const label = el("callDockLabel");
+  if (label && activeCallPeer) {
+    label.textContent = `În apel: ${activeCallPeer.displayName || activeCallPeer.publicId}`;
+  }
+}
+
+function restoreCallOverlay() {
+  if (!pc && !pendingIncoming) return;
+  callOverlayMinimized = false;
+  el("callDock")?.classList.add("hidden");
+  document.body.classList.add("in-call-mode");
+  document.body.classList.remove("call-docked");
+  callOverlay?.classList.remove("hidden");
+  if (pendingIncoming) {
+    callOverlayIncoming?.classList.remove("hidden");
+    callOverlayActive?.classList.add("hidden");
+    callOverlayCalling?.classList.add("hidden");
+  } else if (pc) {
+    showCallOverlayActive(activeCallPeer || { publicId: currentPeerPublicId });
+  } else if (isCaller) {
+    showCallOverlayCalling(activeCallPeer || { publicId: currentPeerPublicId });
+  }
+}
+
+let callVolumeMenu = null;
+
+function closeCallVolumeMenu() {
+  if (callVolumeMenu) {
+    callVolumeMenu.remove();
+    callVolumeMenu = null;
+  }
+}
+
+function openCallVolumeMenu(evt, anchorEl) {
+  evt.preventDefault();
+  closeCallVolumeMenu();
+  const menu = document.createElement("div");
+  menu.className = "call-volume-menu server-menu";
+  menu.style.left = `${Math.min(evt.clientX, window.innerWidth - 280)}px`;
+  menu.style.top = `${Math.min(evt.clientY, window.innerHeight - 160)}px`;
+
+  const rLabel = document.createElement("label");
+  rLabel.textContent = "Îl auzi";
+  rLabel.className = "muted";
+  const rInput = document.createElement("input");
+  rInput.type = "range";
+  rInput.min = "0";
+  rInput.max = "200";
+  rInput.value = remoteVolume?.value || "100";
+  rInput.addEventListener("input", () => {
+    unlockAudio();
+    setRemoteVolumePercent(rInput.value);
+  });
+
+  const mLabel = document.createElement("label");
+  mLabel.textContent = "Te aude";
+  mLabel.className = "muted";
+  const mInput = document.createElement("input");
+  mInput.type = "range";
+  mInput.min = "0";
+  mInput.max = "200";
+  mInput.value = micVolume?.value || "100";
+  mInput.addEventListener("input", () => {
+    unlockAudio();
+    setMicVolumePercent(mInput.value);
+  });
+
+  menu.appendChild(rLabel);
+  menu.appendChild(rInput);
+  menu.appendChild(mLabel);
+  menu.appendChild(mInput);
+  document.body.appendChild(menu);
+  callVolumeMenu = menu;
+}
+
+function bindCallAvatarContextMenu(node) {
+  if (!node || node.dataset.ctxBound) return;
+  node.dataset.ctxBound = "1";
+  node.addEventListener("contextmenu", (e) => openCallVolumeMenu(e, node));
 }
 
 function showCallOverlayIncoming(fromPublicId) {
@@ -248,12 +343,15 @@ function showCallOverlayIncoming(fromPublicId) {
   callOverlayCalling?.classList.add("hidden");
   const friend = chatPeer?.publicId === fromPublicId ? chatPeer : { publicId: fromPublicId };
   fillCallAvatar(el("callOverlayRemoteAvatar"), friend, fromPublicId);
+  bindCallAvatarContextMenu(el("callOverlayRemoteAvatar"));
   const t = el("callOverlayIncomingText");
   if (t) t.textContent = `${friend.displayName || fromPublicId} te sună`;
   incomingCallBanner?.classList.add("hidden");
 }
 
 function showCallOverlayCalling(peer) {
+  activeCallPeer = peer;
+  if (callOverlayMinimized) return;
   document.body.classList.add("in-call-mode");
   callOverlay?.classList.remove("hidden");
   callOverlayCalling?.classList.remove("hidden");
@@ -267,13 +365,23 @@ function showCallOverlayCalling(peer) {
 }
 
 function showCallOverlayActive(peer) {
+  activeCallPeer = peer;
+  if (callOverlayMinimized) {
+    const label = el("callDockLabel");
+    if (label) label.textContent = `În apel: ${peer?.displayName || peer?.publicId}`;
+    return;
+  }
   document.body.classList.add("in-call-mode");
+  document.body.classList.remove("call-docked");
+  el("callDock")?.classList.add("hidden");
   callOverlay?.classList.remove("hidden");
   callOverlayActive?.classList.remove("hidden");
   callOverlayIncoming?.classList.add("hidden");
   callOverlayCalling?.classList.add("hidden");
   fillCallAvatar(el("callOverlayRemoteAvatarActive"), peer, peer?.publicId);
   fillCallAvatar(el("callOverlayLocalAvatar"), me, me?.publicId);
+  bindCallAvatarContextMenu(el("callOverlayRemoteAvatarActive"));
+  bindCallAvatarContextMenu(el("callOverlayLocalAvatar"));
   const rn = el("callOverlayRemoteName");
   if (rn) rn.textContent = peer?.displayName || `User ${peer?.publicId}`;
   const ln = el("callOverlayLocalName");
@@ -386,6 +494,8 @@ function initServersModule() {
     me,
     api,
     getStream: getVoiceStream,
+    unlockAudio,
+    getAudioContext: () => audioCtx,
     elements: {
       voiceGrid: el("voiceGrid"),
       voiceChannelName: el("voiceChannelName"),
@@ -747,6 +857,7 @@ async function refreshMe() {
       startCallTimer();
       setInCallUI(true);
       const peer = chatPeer?.publicId === fromPublicId ? chatPeer : { publicId: fromPublicId };
+      activeCallPeer = peer;
       showCallOverlayActive(peer);
     });
 
@@ -985,6 +1096,7 @@ async function startCall(toPublicId) {
   if (pc || pendingIncoming) return;
 
   const peer = chatPeer?.publicId === toPublicId ? chatPeer : { publicId: toPublicId, displayName: null, avatarUrl: null };
+  activeCallPeer = peer;
 
   try {
     setCallState(`calling ${toPublicId}...`);
@@ -1258,6 +1370,16 @@ el("overlayMicBtn")?.addEventListener("click", () => {
   setMicMuted(!micMuted);
 });
 el("overlayRemoteMuteBtn")?.addEventListener("click", () => {
+  unlockAudio();
+  setRemoteMuted(!remoteMuted);
+});
+el("overlayCloseTabBtn")?.addEventListener("click", () => minimizeCallOverlay());
+el("callDockOpenBtn")?.addEventListener("click", () => restoreCallOverlay());
+el("callDockMicBtn")?.addEventListener("click", () => {
+  unlockAudio();
+  setMicMuted(!micMuted);
+});
+el("callDockDeafenBtn")?.addEventListener("click", () => {
   unlockAudio();
   setRemoteMuted(!remoteMuted);
 });

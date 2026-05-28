@@ -5,15 +5,16 @@ window.VoiceChannels = (function () {
   let socket = null;
   let me = null;
   let getStream = null;
+  let unlockAudioFn = null;
+  let getAudioCtx = null;
 
   let activeServerId = null;
   let activeChannelId = null;
   let localStream = null;
   let micMuted = false;
   let deafened = false;
-  let statusText = "";
 
-  /** @type {Map<number, { pc: RTCPeerConnection, audio: HTMLAudioElement, iceQueue: object[] }>} */
+  /** @type {Map<number, { pc, iceQueue, gain, source }>} */
   const peers = new Map();
   let voiceState = {};
 
@@ -29,18 +30,28 @@ window.VoiceChannels = (function () {
     socket = deps.socket;
     me = deps.me;
     getStream = deps.getStream;
+    unlockAudioFn = deps.unlockAudio;
+    getAudioCtx = deps.getAudioContext;
     Object.assign(els, deps.elements);
     bindSocket();
     bindControls();
   }
 
-  function setStatus(text) {
-    statusText = text || "";
-    if (els.voiceStatus) els.voiceStatus.textContent = statusText;
+  function unlockPlayback() {
+    try {
+      unlockAudioFn?.();
+    } catch {
+      // ignore
+    }
+  }
+
+  function iAmOfferer(remotePid) {
+    return Number(me?.publicId) < Number(remotePid);
   }
 
   function bindControls() {
     els.voiceJoinBtn?.addEventListener("click", () => {
+      unlockPlayback();
       if (isInVoice()) leaveChannel();
       else joinCurrentChannel();
     });
@@ -119,8 +130,13 @@ window.VoiceChannels = (function () {
     return voiceState[String(channelId)] || voiceState[channelId] || [];
   }
 
+  function setStatus(text) {
+    if (els.voiceStatus) els.voiceStatus.textContent = text || "";
+  }
+
   async function ensureLocalStream() {
     if (localStream) return localStream;
+    unlockPlayback();
     if (getStream) localStream = await getStream();
     else {
       localStream = await navigator.mediaDevices.getUserMedia({
@@ -129,6 +145,26 @@ window.VoiceChannels = (function () {
       });
     }
     return localStream;
+  }
+
+  function connectRemoteAudio(entry, stream) {
+    const ctx = getAudioCtx?.();
+    if (!ctx) return;
+    unlockPlayback();
+    try {
+      if (entry.source) {
+        try {
+          entry.source.disconnect();
+        } catch {}
+      }
+      entry.source = ctx.createMediaStreamSource(stream);
+      entry.gain = ctx.createGain();
+      entry.gain.gain.value = deafened ? 0 : 1;
+      entry.source.connect(entry.gain).connect(ctx.destination);
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    } catch (e) {
+      setStatus("Audio: " + (e.message || "eroare"));
+    }
   }
 
   async function joinCurrentChannel() {
@@ -142,12 +178,12 @@ window.VoiceChannels = (function () {
     }
     try {
       setStatus("Conectare la voice...");
+      unlockPlayback();
       await ensureLocalStream();
       applyMicMute();
       socket.emit("voice:join", { serverId: activeServerId, channelId: activeChannelId });
       setStatus("Conectat. Așteaptă alți utilizatori...");
-    } catch (err) {
-      setStatus("");
+    } catch {
       alert("Permite accesul la microfon pentru voice.");
     }
   }
@@ -168,8 +204,8 @@ window.VoiceChannels = (function () {
 
   function toggleDeafen() {
     deafened = !deafened;
-    peers.forEach(({ audio }) => {
-      audio.muted = deafened;
+    peers.forEach((p) => {
+      if (p.gain) p.gain.gain.value = deafened ? 0 : 1;
     });
     els.voiceDeafenBtn?.classList.toggle("active-off", deafened);
   }
@@ -184,9 +220,10 @@ window.VoiceChannels = (function () {
     const p = peers.get(publicId);
     if (!p) return;
     try {
+      if (p.source) p.source.disconnect();
+      if (p.gain) p.gain.disconnect();
       p.pc.close();
     } catch {}
-    p.audio.remove();
     peers.delete(publicId);
   }
 
@@ -197,19 +234,11 @@ window.VoiceChannels = (function () {
   function createPeer(publicId) {
     if (peers.has(publicId)) return peers.get(publicId);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const audio = document.createElement("audio");
-    audio.autoplay = true;
-    audio.playsInline = true;
-    audio.muted = deafened;
-    audio.setAttribute("playsinline", "true");
-    document.body.appendChild(audio);
-
-    const entry = { pc, audio, iceQueue: [] };
+    const entry = { pc, iceQueue: [], gain: null, source: null };
 
     pc.ontrack = (e) => {
       const stream = e.streams[0] || new MediaStream([e.track]);
-      audio.srcObject = stream;
-      audio.play().catch(() => {});
+      connectRemoteAudio(entry, stream);
     };
 
     pc.onicecandidate = (e) => {
@@ -221,6 +250,16 @@ window.VoiceChannels = (function () {
         type: "ice",
         payload: e.candidate,
       });
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "connected") {
+        setStatus("Conexiune voice activă.");
+        unlockPlayback();
+      }
+      if (pc.connectionState === "failed") {
+        setStatus("Conexiune voice eșuată. Reintră în canal.");
+      }
     };
 
     if (localStream) {
@@ -257,17 +296,25 @@ window.VoiceChannels = (function () {
       return;
     }
 
-    setStatus(users.length > 1 ? "În apel voice cu alții." : "Ești singur în canal. Așteaptă pe cineva.");
+    const remoteUsers = users.filter((u) => Number(u.publicId) !== myPid);
+    setStatus(
+      remoteUsers.length
+        ? `În voice cu ${remoteUsers.length} persoană(e).`
+        : "Ești singur în canal. Așteaptă pe cineva."
+    );
 
-    const remoteIds = new Set(users.map((u) => Number(u.publicId)).filter((id) => id !== myPid));
+    const remoteIds = new Set(remoteUsers.map((u) => Number(u.publicId)));
 
     for (const pid of peers.keys()) {
       if (!remoteIds.has(pid)) closePeer(pid);
     }
 
-    for (const u of users) {
+    for (const u of remoteUsers) {
       const pid = Number(u.publicId);
-      if (pid === myPid || peers.has(pid)) continue;
+      if (peers.has(pid)) continue;
+
+      if (!iAmOfferer(pid)) continue;
+
       const { pc } = createPeer(pid);
       try {
         const offer = await pc.createOffer();
@@ -286,7 +333,20 @@ window.VoiceChannels = (function () {
   }
 
   async function handleOffer(fromPublicId, offer) {
-    const entry = createPeer(fromPublicId);
+    unlockPlayback();
+    let entry = peers.get(fromPublicId);
+    if (!entry) entry = createPeer(fromPublicId);
+
+    const { pc } = entry;
+    if (pc.signalingState === "have-local-offer") {
+      try {
+        await pc.setLocalDescription({ type: "rollback" });
+      } catch {
+        closePeer(fromPublicId);
+        entry = createPeer(fromPublicId);
+      }
+    }
+
     await entry.pc.setRemoteDescription(offer);
     await flushIce(fromPublicId);
     const answer = await entry.pc.createAnswer();
@@ -305,6 +365,7 @@ window.VoiceChannels = (function () {
     if (!p) return;
     await p.pc.setRemoteDescription(answer);
     await flushIce(fromPublicId);
+    unlockPlayback();
   }
 
   async function handleIce(fromPublicId, candidate) {
@@ -357,6 +418,8 @@ window.VoiceChannels = (function () {
     joinCurrentChannel,
     leaveChannel,
     isInVoice,
+    toggleMic,
+    toggleDeafen,
     getVoiceState: () => voiceState,
   };
 })();
