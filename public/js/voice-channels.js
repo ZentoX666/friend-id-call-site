@@ -48,7 +48,6 @@ window.VoiceChannels = (function () {
 
   function getVoiceAudioContext() {
     unlockPlayback();
-    if (!voiceCtx) voiceCtx = getAudioCtx?.() || null;
     if (!voiceCtx) {
       try {
         voiceCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -58,6 +57,22 @@ window.VoiceChannels = (function () {
     }
     if (voiceCtx.state === "suspended") voiceCtx.resume().catch(() => {});
     return voiceCtx;
+  }
+
+  /** Canalul în care suntem conectați la voice (din prezență server). */
+  function findMyVoiceChannelId() {
+    const myPid = Number(me?.publicId);
+    if (!myPid) return activeChannelId;
+    for (const [chId, users] of Object.entries(voiceState)) {
+      const list = users || [];
+      if (list.some((u) => Number(u.publicId) === myPid)) return Number(chId);
+    }
+    return activeChannelId;
+  }
+
+  function channelMatchesSession(channelId) {
+    const myCh = findMyVoiceChannelId();
+    return Number(channelId) === Number(myCh);
   }
 
   function iAmOfferer(remotePid) {
@@ -85,11 +100,24 @@ window.VoiceChannels = (function () {
       if (Number(serverId) !== Number(activeServerId)) return;
       voiceState = channels || {};
       window.ServersUI?.renderVoicePresence(voiceState);
-      syncPeersForChannel();
+      const myCh = findMyVoiceChannelId();
+      if (myCh) {
+        if (Number(activeChannelId) !== Number(myCh)) {
+          activeChannelId = myCh;
+          const ch = window.ServersUI?.getChannelById?.(myCh);
+          if (ch) window.ServersUI?.focusVoiceChannel?.(myCh, { rejoin: false });
+        }
+        syncPeersForChannel();
+      } else {
+        closeAllPeers();
+        updateJoinButton();
+        renderParticipants();
+      }
     });
 
     socket.on("voice:signal", async ({ serverId, channelId, fromPublicId, type, payload }) => {
-      if (Number(serverId) !== Number(activeServerId) || Number(channelId) !== Number(activeChannelId)) return;
+      if (Number(serverId) !== Number(activeServerId) || !channelMatchesSession(channelId)) return;
+      if (Number(channelId) !== Number(activeChannelId)) activeChannelId = Number(channelId);
       const pid = Number(fromPublicId);
       if (pid === Number(me?.publicId)) return;
       try {
@@ -101,11 +129,21 @@ window.VoiceChannels = (function () {
       }
     });
 
-    socket.on("voice:moved", ({ serverId, channelId }) => {
+    socket.on("voice:moved", async ({ serverId, channelId }) => {
       if (Number(serverId) !== Number(activeServerId)) return;
-      leaveChannel(false);
-      activeChannelId = Number(channelId);
-      joinCurrentChannel();
+      const newCid = Number(channelId);
+      closeAllPeers();
+      activeChannelId = newCid;
+      window.ServersUI?.focusVoiceChannel?.(newCid, { rejoin: false });
+      try {
+        await ensureLocalStream();
+        applyMicMute();
+      } catch {
+        // mic optional for listen-only after move
+      }
+      syncPeersForChannel();
+      setTimeout(() => syncPeersForChannel(), 600);
+      setTimeout(() => syncPeersForChannel(), 1500);
     });
   }
 
@@ -190,15 +228,11 @@ window.VoiceChannels = (function () {
     const audio = document.createElement("audio");
     audio.autoplay = true;
     audio.playsInline = true;
-    audio.muted = deafened;
     audio.setAttribute("playsinline", "true");
     audio.srcObject = stream;
-    audio.style.cssText = "position:fixed;left:-9999px;width:1px;height:1px;";
+    audio.style.cssText = "position:fixed;left:-9999px;width:1px;height:1px;pointer-events:none;";
     document.body.appendChild(audio);
     entry.audioEl = audio;
-    const playFallback = () => audio.play().catch(() => {});
-    playFallback();
-    audio.onloadedmetadata = playFallback;
 
     const ctx = voiceCtx;
     if (ctx) {
@@ -215,11 +249,16 @@ window.VoiceChannels = (function () {
         }
         entry.source = ctx.createMediaStreamSource(stream);
         entry.gain = ctx.createGain();
-        entry.gain.gain.value = deafened ? 0 : 1.15;
+        entry.gain.gain.value = deafened ? 0 : 1;
         entry.source.connect(entry.gain).connect(ctx.destination);
+        audio.muted = true;
       } catch {
-        // fallback: <audio> element only
+        audio.muted = deafened;
+        audio.play().catch(() => {});
       }
+    } else {
+      audio.muted = deafened;
+      audio.play().catch(() => {});
     }
   }
 
@@ -263,8 +302,8 @@ window.VoiceChannels = (function () {
   function toggleDeafen() {
     deafened = !deafened;
     peers.forEach((p) => {
-      if (p.gain) p.gain.gain.value = deafened ? 0 : 1.15;
-      if (p.audioEl) p.audioEl.muted = deafened;
+      if (p.gain) p.gain.gain.value = deafened ? 0 : 1;
+      if (p.audioEl) p.audioEl.muted = deafened || !!p.gain;
     });
     els.voiceDeafenBtn?.classList.toggle("active-off", deafened);
   }
@@ -325,7 +364,9 @@ window.VoiceChannels = (function () {
         getVoiceAudioContext();
       }
       if (pc.connectionState === "failed") {
-        setStatus("Conexiune voice eșuată. Apasă Părăsește voice și intră din nou.");
+        setStatus("Reconectare voice…");
+        closePeer(publicId);
+        setTimeout(() => syncPeersForChannel(), 500);
       }
     };
 
@@ -348,10 +389,12 @@ window.VoiceChannels = (function () {
   }
 
   async function syncPeersForChannel() {
-    if (!activeChannelId) return;
+    const channelId = findMyVoiceChannelId() || activeChannelId;
+    if (!channelId) return;
+    activeChannelId = channelId;
     await ensureLocalStream().catch(() => {});
 
-    const users = usersInChannel(activeChannelId);
+    const users = usersInChannel(channelId);
     const myPid = Number(me?.publicId);
     const inChannel = users.some((u) => Number(u.publicId) === myPid);
     updateJoinButton();
@@ -482,6 +525,10 @@ window.VoiceChannels = (function () {
     }
   }
 
+  function resyncPeers() {
+    syncPeersForChannel();
+  }
+
   return {
     init,
     setMe,
@@ -493,6 +540,7 @@ window.VoiceChannels = (function () {
     isInVoice,
     toggleMic,
     toggleDeafen,
+    resyncPeers,
     getVoiceState: () => voiceState,
   };
 })();

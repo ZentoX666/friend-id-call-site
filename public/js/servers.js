@@ -384,7 +384,25 @@ window.ServersUI = (function () {
         container.appendChild(row);
       }
     });
-    VoiceChannels.setActiveChannel(currentChannel?.id, currentChannel?.name);
+  }
+
+  function getChannelById(channelId) {
+    return currentServer?.channels?.find((c) => Number(c.id) === Number(channelId)) || null;
+  }
+
+  /** Aliniază UI-ul cu canalul voice (ex. după drag admin). */
+  function focusVoiceChannel(channelId, opts = {}) {
+    const ch = getChannelById(channelId);
+    if (!ch || ch.type !== "voice") return;
+    currentChannel = ch;
+    document.querySelectorAll(".channel-item").forEach((n) => n.classList.remove("active"));
+    document.querySelector(`.channel-item[data-channel-id="${ch.id}"]`)?.classList.add("active");
+    if (els.mainTitle) els.mainTitle.textContent = ch.name;
+    VoiceChannels.setActiveChannel(ch.id, ch.name);
+    onShowVoicePanel?.();
+    if (opts.rejoin !== false && VoiceChannels.isInVoice?.()) {
+      VoiceChannels.joinCurrentChannel?.();
+    }
   }
 
   function setupVoiceDropTarget(wrap, channelId) {
@@ -404,6 +422,9 @@ window.ServersUI = (function () {
           targetPublicId: publicId,
           toChannelId: channelId,
         });
+        if (VoiceChannels.isInVoice?.() && Number(currentChannel?.id) === Number(channelId)) {
+          setTimeout(() => VoiceChannels.resyncPeers?.(), 500);
+        }
       } catch {
         // ignore
       }
@@ -575,5 +596,7 @@ window.ServersUI = (function () {
     openMobileContentPane,
     closeMobileContentPane,
     onMobileBack,
+    getChannelById,
+    focusVoiceChannel,
   };
 })();
